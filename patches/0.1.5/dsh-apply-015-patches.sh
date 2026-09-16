@@ -21,6 +21,9 @@
 # IDEMPOTENT: safe to re-run; each leg checks current state before editing.
 set -euo pipefail
 
+# PREFIX: Termux sets it in the environment. provision.sh passes it through to
+# this patcher; when run standalone we derive the same conventional location
+# from $HOME. No path is hard-coded.
 PREFIX="${PREFIX:-$(dirname "$(dirname "$HOME")")/usr}"
 DSH_DIR="$PREFIX/lib/node_modules/@deepseek-ai/dsh"
 SHARP_DIR="$DSH_DIR/node_modules/sharp"
@@ -37,7 +40,7 @@ if [ -d "$SHARP_DIR" ]; then
   fi
 fi
 
-# --- 2. flock A-path loader (install script drops the prebuilt + loader) ---
+# --- 2. flock loader (install script drops the prebuilt + loader) ---
 log "Installing flock addon (prebuilt system.node + android-aware loader)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"

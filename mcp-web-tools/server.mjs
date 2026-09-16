@@ -3,11 +3,8 @@
 //   mcp__web__searxng_search  — metasearch via the local searXNG instance
 //   mcp__web__extract         — main-content extraction via trafilatura
 //   mcp__web__fetch_raw       — raw HTML fetch (JS-heavy/blocked pages: use
-//                               mcp__browser__browse or the stealth skill)
+//                               mcp__browser__browse instead)
 // Framing: newline-delimited JSON-RPC 2.0 over stdin/stdout (MCP stdio).
-// 2026-08-22: recreated permanently — the platform-provided copies of these
-// tool names disappeared from the live schema after a dsh restart, so this
-// local registration is now the authoritative source.
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 

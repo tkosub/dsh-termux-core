@@ -2,23 +2,26 @@
 # provision.sh — install or update DeepSeek Harness (dsh) on Termux/Android.
 #
 # One script, two modes:
-#   * FRESH INSTALL : idempotent — run it on a new Termux and you get a working dsh.
-#   * UPDATE        : run the SAME script on an existing install; it detects what
-#                     is already there, re-pins the target version, and re-applies
-#                     every Termux patch (patchers are no-ops when already applied).
+#   * INSTALL : idempotent — run it on a new Termux and you get a working dsh.
+#   * UPDATE  : run the SAME script on an existing install; it detects what is
+#               already there, re-pins the target version, and re-applies every
+#               Termux patch (patchers are no-ops when already applied).
 #
 # Zero personal data lives here. Host-specific tweaks go in a LOCAL patch file
 # you pass with --with-local-patches (see patches/local-patches.d/README.md).
 #
-# Design notes (why each fix exists) — see docs/patch-matrix.md for the full map:
-#   * node-gyp common.gypi android_ndk_path  -> node-pty native build (missing NDK)
-#   * sharp @img/sharp-wasm32 fallback        -> no android-arm64 sharp prebuilt
-#   * launcher wrapper --expose-internals     -> HMR plugin requirement
-#   * version-targeted patchers (patches/*)   -> flock addon, hard-link->rename, etc.
-#   * pi-ai thinking fix is UPSTREAMED in pi-ai 0.85.1 (no patching needed there).
+# What this script does, in order:
+#   1. installs Termux build/runtime packages
+#   2. patches node-gyp so native addons build on Android (android_ndk_path)
+#   3. installs the pinned dsh version (see DSH_VERSION below)
+#   4. wraps the launcher with --expose-internals (HMR requirement)
+#   5. dispatches the version-targeted patcher (patches/<version>/), which
+#      applies every Termux/Android fix (sharp WASM, flock addon,
+#      hard-link->rename) — the patcher is itself idempotent
+#   6. runs your local patch file, if given (--with-local-patches)
 #
-# Safety: this script ONLY writes inside $PREFIX (Termux system), $HOME/.dsh, and
-# $HOME/.cache. It never touches your personal bridges, relays, or model config.
+# Safety: this script ONLY writes inside $PREFIX (Termux system), $HOME/.dsh,
+# and $HOME/.cache. It never touches your personal bridges, relays, or config.
 
 set -euo pipefail
 
@@ -177,4 +180,4 @@ fi
 
 # --- 7) Done -------------------------------------------------------------------
 log "DONE. Verify: dsh --version"
-log "Next: restart dsh (e.g. via your boot layer, such as ~/.dsh/boot/start-dsh.sh restart) so re-applied patches load."
+log "Next: restart dsh at the host layer (your own boot mechanism) so re-applied patches load."

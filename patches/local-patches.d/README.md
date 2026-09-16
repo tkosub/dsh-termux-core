@@ -1,4 +1,4 @@
-# Local patches hook — the public/private seam
+# Local patches hook
 
 `provision.sh` accepts `--with-local-patches <file>` to run a host's own
 personal patch file AFTER the public patchers. This is how a dsh-on-Termux
@@ -11,10 +11,10 @@ re-applying them on every install/update.
 bash provision.sh --with-local-patches ~/dsh-local-patches.sh
 ```
 
-Your file is sourced by `provision.sh` after the version patcher runs. It can
-contain anything your host needs — bridges, relays, model catalog entries,
-config edits — but by design it lives OUTSIDE this repo (this repo's
-`.gitignore` excludes `dsh-local-patches.sh` and `local-*.sh`).
+Your file is run by `provision.sh` after the version patcher. It can contain
+anything your host needs — bridges, relays, model catalog entries, config
+edits — but by design it lives OUTSIDE this repo (this repo's `.gitignore`
+excludes `dsh-local-patches.sh` and `local-*.sh`).
 
 ## What belongs in a local patch file (vs this repo)
 
@@ -22,7 +22,7 @@ config edits — but by design it lives OUTSIDE this repo (this repo's
   would break a stranger's phone — LAN/TLS bridges, endpoint relays, model
   catalog tunes, boot-layer edits, profile config.
 - **This repo's patchers** (`patches/<ver>/`): core Termux/Android fixes any
-  user needs — sharp wasm fallback, flock addon, hard-link→rename, launcher
+  user needs — sharp WASM fallback, flock addon, hard-link→rename, launcher
   wrapper.
 
 The classification rule: new core fixes land in the public patchers
@@ -34,7 +34,6 @@ The classification rule: new core fixes land in the public patchers
 #!/usr/bin/env bash
 # ~/dsh-local-patches.sh — this host's personal patches (NOT in the repo)
 set -euo pipefail
-log "local-patches: applying host-specific tweaks"
 
 # The repo's patchers already did the core fixes; here only host glue:
 #   - point a model provider at a private endpoint
@@ -42,9 +41,9 @@ log "local-patches: applying host-specific tweaks"
 #   - start your host's sidecar services
 # Each of these is host-specific and would break a stranger's phone.
 
-# Example: rewrite the persona key that 0.1.5 renamed
-if [[ -f ~/.dsh/profiles/web/*.patch.yml ]]; then
-  sed -i 's/^persona:/personaPrefix:/' ~/.dsh/profiles/web/*.patch.yml
+# Example: apply a config edit to a file that exists on this host
+if [[ -f ~/.dsh/profiles/web/profile.yml ]]; then
+  sed -i 's/^key: old/key: new/' ~/.dsh/profiles/web/profile.yml
 fi
 ```
 

@@ -9,13 +9,16 @@
 # flock(2), so we ship a prebuilt android-arm64 binding + a loader that admits
 # android and loads it from the host-controlled dir (DSH_FLOCK_PREBUILD_DIR).
 #
-# USAGE:    bash install-android-flock.sh [--prefix /data/.../usr]
-#           [--prefix=FLAG] [PREFIX] all supported; env PREFIX wins.
+# USAGE:    bash install-android-flock.sh [--prefix DIR]
+#           All forms are accepted: --prefix DIR, --prefix=DIR, bare positional,
+#           or the PREFIX environment variable. NOTE: the PREFIX env var has
+#           the HIGHEST priority — --prefix/positional only take effect when
+#           PREFIX is unset (Termux always sets PREFIX in its environment).
 # IDEMPOTENT: safe to re-run; upgrades/updates just re-copy (same-version overwrite).
 set -euo pipefail
 
 # --- Resolve PREFIX (never hard-coded) ---
-# Priority: env PREFIX > --prefix=F / --prefix F / bare positional.
+# Priority: env PREFIX > --prefix=DIR / --prefix DIR / bare positional.
 PREFIX="${PREFIX:-}"
 if [ -z "$PREFIX" ]; then
   case "${1:-}" in

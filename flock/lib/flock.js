@@ -1,19 +1,19 @@
 /** Lazy POSIX flock entry; importing it does not load a native addon.
  *
- * Termux/Android variant (A-path): `process.platform === 'android'` on
- * Termux, but Bionic exposes a fully functional flock(2). The upstream
- * package ships platform packages only for linux and darwin; on android it
- * would throw ERR_FLOCK_UNSUPPORTED_PLATFORM. This patched copy relaxes the
- * guard to admit android and loads the prebuilt addon from a location the
- * host controls.
+ * Termux/Android variant: `process.platform === 'android'` on Termux, but
+ * Bionic exposes a fully functional flock(2). The upstream package ships
+ * platform packages only for linux and darwin; on android it would throw
+ * ERR_FLOCK_UNSUPPORTED_PLATFORM. This patched copy relaxes the guard to
+ * admit android and loads the prebuilt addon from a location the host
+ * controls.
  *
- *   - primary (A): prebuilt system.node at the DSH_FLOCK_PREBUILD_DIR
- *     directory (default ~/.dsh/flock/), set by the installer so each host
- *     places the binary where its own policy says; the loader reads the
- *     environment at first use and never hard-codes a host path.
- *   - fallback (B): if the prebuilt is absent, degrade to a process-local
- *     no-op lease (same semantics as the upstream browser-worker stub) —
- *     correct for a single-process host, no cross-process exclusion.
+ *   - primary: prebuilt system.node at the DSH_FLOCK_PREBUILD_DIR directory
+ *     (default ~/.dsh/flock/), set by the installer so each host places the
+ *     binary where its own policy says; the loader reads the environment at
+ *     first use and never hard-codes a host path.
+ *   - fallback: if the prebuilt is absent, degrade to a process-local no-op
+ *     lease (same semantics as the upstream browser-worker stub) — correct
+ *     for a single-process host, no cross-process exclusion.
  *
  * Drop-in replacement for @deepseek-ai/node-addon-system/lib/flock.js.
  */
@@ -51,8 +51,8 @@ function loadBinding() {
             binding = require(custom);
             return binding;
         }
-        // B fallback: single-process host -> no-op lease (browser-worker stub),
-        // but LOUD: warn once on stderr so a missing prebuild is never silent
+        // Fallback: single-process host -> no-op lease (browser-worker stub),
+        // but LOUD: warn once on stderr so a missing prebuilt is never silent
         // (the exact failure mode that blocked dsh 0.1.5). Warn-once keeps the
         // call contract; a properly provisioned host never sees it.
         if (!binding) {

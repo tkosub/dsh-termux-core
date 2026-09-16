@@ -1,8 +1,8 @@
 # flock — Bionic flock addon for dsh on Termux/Android
 
-The `@deepseek-ai/dsh` session-write lease (dsh ≥ 0.1.5) uses
-`@deepseek-ai/node-addon-system/flock`. The upstream `flock.js` loader admits
-only `linux`/`darwin` and throws `ERR_FLOCK_UNSUPPORTED_PLATFORM` on Android
+The `@deepseek-ai/dsh` session-write lease uses
+`@deepseek-ai/node-addon-system/flock`. The upstream loader admits only
+`linux`/`darwin` and throws `ERR_FLOCK_UNSUPPORTED_PLATFORM` on Android
 (Termux) because per-platform npm packages exist only for darwin+linux. But
 Android's Bionic libc exposes a fully functional `flock(2)` — so this package
 ships:
@@ -13,21 +13,19 @@ ships:
   prebuilt from the host-controlled directory, and is a byte-compatible
   drop-in for `node-addon-system/lib/flock.js`.
 
-This is the piece that unblocks dsh 0.1.5+ on Termux (the "flock blocker").
+Without this, `dsh` cannot acquire its session-write lease on Termux.
 
 ## Layout
 
 ```
 flock/
   lib/flock.js            android-aware loader (drop-in for the upstream file)
-  lib/flock.js.orig       upstream loader, for reference / diffing
-  src/flock.c             vendored addon source (unmodified upstream)
-  src/main.c              vendored source (packaged with the entry, unused for flock)
+  src/flock.c             vendored addon source (upstream)
   build/binding.gyp       node-gyp config used to compile system.node
   prebuilt/system.node    compiled Bionic android-arm64 binding (11504 bytes)
   tests/
     test-flock-addon.cjs  cross-process functional test (self-contained)
-    a-path-smoke.mjs      loader smoke test (uses the env prebuild dir)
+    flock-load-smoke.mjs  loader smoke test (uses the env prebuild dir)
   install-android-flock.sh  installer (idempotent, PREFIX-derived)
 ```
 
@@ -38,7 +36,7 @@ The loader's `loadBinding()` relaxes the upstream platform guard to admit
 (default `~/.dsh/flock/`). If the prebuilt is absent it falls back to a
 single-process no-op lease — **loudly**: it warns once on stderr with code
 `DSH_FLOCK_NO_PREBUILD` so a missing prebuilt is never silent (a silent no-op
-would recreate the exact failure mode that blocked dsh 0.1.5, two processes
+would recreate the exact failure mode that blocked `dsh` 0.1.5, two processes
 both believing they hold the lock). A properly provisioned host never sees the
 warning.
 
@@ -66,16 +64,17 @@ DSH_FLOCK_TEST_BINDING="$PWD/prebuilt/system.node" \
   node tests/test-flock-addon.cjs
 
 # loader smoke test (imports the loader, acquires via env prebuild dir)
-DSH_FLOCK_PREBUILD_DIR="$PWD/prebuilt" node tests/a-path-smoke.mjs
+DSH_FLOCK_PREBUILD_DIR="$PWD/prebuilt" node tests/flock-load-smoke.mjs
 ```
 
 Expected: holder acquires, child while held returns EAGAIN, child after release
-re-acquires; smoke prints `A-path OK`.
+re-acquires; smoke prints `flock OK`.
 
 ## Building the addon from source
 
 You normally don't need to — `prebuilt/system.node` is the verified,
-tested binary. To rebuild (e.g. for a different NDK/API level):
+tested binary (with a documented SHA-256 below). To rebuild (e.g. for a
+different NDK/API level):
 
 ```sh
 cd build && node-gyp rebuild
@@ -86,10 +85,7 @@ Requires the Termux `node-dev`/clang toolchain. `binding.gyp` compiles
 
 ## Provenance
 
-- `src/flock.c`, `src/main.c`: vendored unmodified from
-  `@deepseek-ai/node-addon-system`.
+- `src/flock.c`: vendored from `@deepseek-ai/node-addon-system`.
 - `prebuilt/system.node`: compiled for Bionic/android-arm64, Node-API v10,
   ABI 147 (Node 26). SHA-256:
   `81ef306f2d48b52a7682e3a0b2685a5bd608d51392198bfe59caffc32a9ba484`.
-- Functional probe passed: holder acquires; a second fd returns EAGAIN
-  (contention); release re-acquires.

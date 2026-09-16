@@ -1,4 +1,4 @@
-// Functional test of the prebuilt flock addon (A-path), CJS.
+// Functional test of the prebuilt flock addon, CJS.
 //
 // Self-contained: takes the binding path from DSH_FLOCK_TEST_BINDING (or
 // argv[2]) and writes its child helper to a temp dir — no absolute host
