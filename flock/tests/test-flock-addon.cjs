@@ -13,6 +13,8 @@ const { tmpdir } = require('node:os');
 const { execFileSync } = require('node:child_process');
 const { getSystemErrorName } = require('node:util');
 const { writeFileSync, mkdtempSync } = require('node:fs');
+const assert = require('node:assert/strict');
+const { rmSync } = require('node:fs');
 
 const BINDING = process.env.DSH_FLOCK_TEST_BINDING || process.argv[2];
 if (!BINDING) {
@@ -56,10 +58,14 @@ function runChild(lockFile) {
 
   const child1 = runChild(lf);
   console.log('child while held:', child1);
+  assert.match(child1, /CHILD errno=(11|35) \(EAGAIN\)/, 'second process acquired a held lock');
 
   await h.close();
   const child2 = runChild(lf);
   console.log('child after release:', child2);
+  assert.match(child2, /CHILD errno=0 \(ACQUIRED\)/);
+  rmSync(lf, {force: true});
 
   console.log('DONE');
-})().catch((e) => { console.error('FAIL', e); process.exit(1); });
+})().catch((e) => { console.error('FAIL', e); process.exitCode = 1; })
+  .finally(() => rmSync(CHILD_DIR, {recursive: true, force: true}));

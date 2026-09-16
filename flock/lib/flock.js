@@ -11,9 +11,7 @@
  *     (default ~/.dsh/flock/), set by the installer so each host places the
  *     binary where its own policy says; the loader reads the environment at
  *     first use and never hard-codes a host path.
- *   - fallback: if the prebuilt is absent, degrade to a process-local no-op
- *     lease (same semantics as the upstream browser-worker stub) — correct
- *     for a single-process host, no cross-process exclusion.
+ * Missing native support is an error; session locks must never be simulated.
  *
  * Drop-in replacement for @deepseek-ai/node-addon-system/lib/flock.js.
  */
@@ -51,18 +49,9 @@ function loadBinding() {
             binding = require(custom);
             return binding;
         }
-        // Fallback: single-process host -> no-op lease (browser-worker stub),
-        // but LOUD: warn once on stderr so a missing prebuilt is never silent
-        // (the exact failure mode that blocked dsh 0.1.5). Warn-once keeps the
-        // call contract; a properly provisioned host never sees it.
-        if (!binding) {
-            process.emitWarning(
-                `flock: prebuilt not found at ${custom} — using no-op lease ` +
-                `(no cross-process exclusion). Run flock/install-android-flock.sh`,
-                { code: 'DSH_FLOCK_NO_PREBUILD' });
-            binding = { tryLock: (_fd, cb) => cb(0) };
-        }
-        return binding;
+        throw Object.assign(new Error(`Android file support is missing: ${custom}. Run provision.sh again.`), {
+            code: 'DSH_FLOCK_NO_PREBUILD',
+        });
     }
     let filename = 'system.node';
     if (platform === 'linux') {
@@ -99,4 +88,23 @@ export async function tryLockExclusive(fd) {
         errno,
         syscall: 'flock',
     });
+}
+
+/** Atomically publish a file, refusing to overwrite an existing destination. */
+export async function renameNoReplace(source, destination) {
+    if (typeof source !== 'string' || typeof destination !== 'string' ||
+        source.includes('\0') || destination.includes('\0')) {
+        throw new TypeError('File paths must be strings without NUL characters');
+    }
+    const native = loadBinding();
+    if (typeof native.publishNoReplace !== 'function') {
+        throw new Error('Android file support is outdated. Run provision.sh again.');
+    }
+    const errno = native.publishNoReplace(source, destination);
+    if (errno) {
+        const code = getSystemErrorName(-errno);
+        throw Object.assign(new Error(`${code}: cannot create ${destination}`), {
+            code, errno, syscall: 'renameat2', path: source, dest: destination,
+        });
+    }
 }

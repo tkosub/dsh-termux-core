@@ -6,7 +6,7 @@
 // The loader path is argv[2]; the prebuild dir comes from the environment so
 // this test exercises the SAME env path the runtime uses.
 import { tryLockExclusive } from '../lib/flock.js';
-import { open } from 'node:fs/promises';
+import { open, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -18,7 +18,9 @@ try {
   console.log('flock OK: tryLockExclusive acquired on android');
 } catch (e) {
   console.log('flock FAILED:', e.code, e.message);
-  process.exit(1);
+  process.exitCode = 1;
+} finally {
+  await h.close();
+  await unlink(lf);
 }
-await h.close();
 console.log('DONE');

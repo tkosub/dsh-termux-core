@@ -10,6 +10,10 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <sys/file.h>
+#include <fcntl.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <stdbool.h>
 
 typedef struct {
   napi_env env;
@@ -153,6 +157,45 @@ static napi_value try_lock(napi_env env, napi_callback_info info) {
   return NULL;
 }
 
+/* Publish a staged file without ever replacing another creator's file.
+ * A plain rename() cannot provide this guarantee. Linux/Android expose
+ * renameat2(RENAME_NOREPLACE); unsupported filesystems return an error.
+ */
+static napi_value publish_no_replace(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2], result;
+  char *paths[2] = {NULL, NULL};
+  if (napi_get_cb_info(env, info, &argc, argv, NULL, NULL) != napi_ok || argc != 2) {
+    napi_throw_type_error(env, NULL, "Two paths are required");
+    return NULL;
+  }
+  for (int i = 0; i < 2; i++) {
+    size_t length;
+    if (napi_get_value_string_utf8(env, argv[i], NULL, 0, &length) != napi_ok) {
+      free(paths[0]);
+      napi_throw_type_error(env, NULL, "Paths must be strings");
+      return NULL;
+    }
+    paths[i] = malloc(length + 1);
+    if (!paths[i]) {
+      free(paths[0]);
+      napi_throw_error(env, "ENOMEM", "Cannot allocate path");
+      return NULL;
+    }
+    if (napi_get_value_string_utf8(env, argv[i], paths[i], length + 1, &length) != napi_ok) {
+      free(paths[0]); free(paths[1]);
+      napi_throw_type_error(env, NULL, "Cannot read path");
+      return NULL;
+    }
+  }
+  int error = 0;
+  if (syscall(SYS_renameat2, AT_FDCWD, paths[0], AT_FDCWD, paths[1], 1U) != 0)
+    error = errno;
+  free(paths[0]); free(paths[1]);
+  if (napi_create_int32(env, error, &result) != napi_ok) return NULL;
+  return result;
+}
+
 NAPI_MODULE_INIT() {
   napi_value function;
   if (napi_create_function(env, "tryLock", NAPI_AUTO_LENGTH, try_lock,
@@ -160,5 +203,8 @@ NAPI_MODULE_INIT() {
       napi_set_named_property(env, exports, "tryLock", function) != napi_ok) {
     return NULL;
   }
+  if (napi_create_function(env, "publishNoReplace", NAPI_AUTO_LENGTH, publish_no_replace,
+                          NULL, &function) != napi_ok ||
+      napi_set_named_property(env, exports, "publishNoReplace", function) != napi_ok) return NULL;
   return exports;
 }

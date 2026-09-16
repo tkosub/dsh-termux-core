@@ -1,0 +1,11 @@
+The original new-file compatibility patch was derived from
+ErEbusE/dsh-termux (https://github.com/ErEbusE/dsh-termux),
+Copyright (c) 2026 ErEbusE, under the MIT license.
+This repository replaces its ordinary rename fallback with an operation
+that refuses to replace an existing file.
+
+The file-locking C implementation in flock/src/flock.c is derived from
+@deepseek-ai/node-addon-system (DeepSeek Harness), under the MIT license.
+Its license is reproduced in flock/UPSTREAM-LICENSE.
+
+The MIT license text is included in LICENSE.
