@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Launcher wrapper so nodriver (running in Termux/Android) can spawn the
+# Debian Chromium that lives inside the proot-distro rootfs. nodriver calls
+# this as: <wrapper> [chromium args...]; we forward verbatim into the rootfs.
+#
+# Override the distro or binary with env (defaults: Debian, system Chromium):
+#   PROOT_DISTRO=debian
+#   PROOT_CHROMIUM=/usr/lib/chromium/chromium
+set -u
+exec proot-distro login "${PROOT_DISTRO:-debian}" -- "${PROOT_CHROMIUM:-/usr/lib/chromium/chromium}" "$@"

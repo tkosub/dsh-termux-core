@@ -1,0 +1,32 @@
+# Fixes the agent write tool on Termux/Android: when hard links (link()) are
+# denied by SELinux (EACCES/EPERM/ENOTSUP/EOPNOTSUPP), fall back to an equally
+# atomic no-replace rename() for new-file publication.
+#
+# Derived from ErEbusE/dsh-termux (https://github.com/ErEbusE/dsh-termux),
+# file `npm-dsh-fs-local-link-rename.patch`, MIT License,
+# Copyright (c) 2026 ErEbusE. Re-derived for @deepseek-ai/dsh-fs-local.
+#
+# Apply with:  patch -p1 < dsh-fs-local-link-rename.patch
+--- a/dsh-fs-local/lib/index.js	2026-09-16 13:40:34.996831951 +0200
++++ b/dsh-fs-local/lib/index.js	2026-09-16 13:40:35.056831957 +0200
+@@ -532,7 +532,19 @@
+ 		if (createIfAbsent !== void 0) try {
+ 			await linkFile(tempPath, absolutePath);
+ 		} catch (error) {
+-			await throwGuardedCreateFailure(error, absolutePath, createIfAbsent.displayPath, inspectPublicationTarget);
++			// dsh-termux-core (adopted from ErEbusE/dsh-termux, MIT): Android
++			// SELinux forbids hard links in app-private storage, so link() fails
++			// with EACCES/EPERM on f2fs. Fall back to rename() — equally atomic
++			// no-replace — when the failure is a platform link denial; otherwise
++			// preserve the guarded create failure (incl. EEXIST races).
++			const errno = error && error.code !== void 0 ? error.code : void 0;
++			const platformLinkDenied = errno !== void 0 && ["EACCES", "EPERM", "ENOTSUP", "EOPNOTSUPP"].includes(errno);
++			if (platformLinkDenied) try {
++				await rename(tempPath, absolutePath);
++			} catch (renameError) {
++				await throwGuardedCreateFailure(renameError, absolutePath, createIfAbsent.displayPath, inspectPublicationTarget);
++			}
++			else await throwGuardedCreateFailure(error, absolutePath, createIfAbsent.displayPath, inspectPublicationTarget);
+ 		}
+ 		else if (platform === "win32" && mode !== void 0) try {
+ 			await replaceFile(absolutePath, tempPath);

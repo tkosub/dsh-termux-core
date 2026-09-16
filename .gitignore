@@ -1,0 +1,30 @@
+# --- Local / personal files that must NEVER be committed --------------------
+# Host-specific personal patch files (the --with-local-patches hook target).
+dsh-local-patches.sh
+personal-patches/
+local-*.sh
+
+# --- Secrets / credentials ---------------------------------------------------
+*\.env*
+*\.credentials*
+*.pem
+*.key
+*.p12
+*.secret
+.env.sh
+
+# --- Runtime / build artifacts ------------------------------------------------
+node_modules/
+*.node
+npm-debug.log*
+*.log
+
+# --- Editor / OS junk ---------------------------------------------------------
+.DS_Store
+*.swp
+*~
+
+# --- Exceptions: we intentionally ship the Bionic prebuilt -------------------
+!flock/prebuilt/system.node
+__pycache__/
+*.pyc

@@ -1,0 +1,134 @@
+# dsh-termux-core
+
+Run [DeepSeek Harness](https://www.npmjs.com/package/@deepseek-ai/dsh) (dsh) on
+**Termux / Android**. One script installs it, and re-running the same script
+updates it — every Termux fix is applied and re-applied automatically.
+
+Nothing in this repo is host-specific: no keys, no tokens, no personal config.
+Your own tweaks go in a local file you pass at install time (see below).
+
+## Quick start
+
+```bash
+# On a fresh Termux (Android 11+ / API 30+, arm64)
+pkg install -y git
+git clone https://github.com/tkosub/dsh-termux-core.git
+cd dsh-termux-core
+bash provision.sh
+```
+
+That's it. After it finishes you have a working `dsh` on your phone
+(installing the pinned version, the native add-ons, and every Termux fix).
+
+Point dsh at your model provider (export `DEEPSEEK_API_KEY=...` or set it in
+the web UI's Models page), then start the server.
+
+## Update (same script)
+
+```bash
+cd dsh-termux-core
+git pull
+bash provision.sh          # re-checks the installed version, re-applies all patches
+```
+
+`provision.sh` detects what's installed, reinstalls only when the pinned
+version differs, and re-applies every Termux fix (each patcher is idempotent —
+safe to re-run). Add `--force` to force a clean reinstall from npm.
+
+## What it does
+
+`provision.sh`:
+1. Installs Termux build/runtime packages.
+2. Fixes node-gyp for building native add-ons on Android (node-pty).
+3. Installs `@deepseek-ai/dsh@0.1.5-rc.1` (pinned — this repo's patches are
+   validated against exactly this version).
+4. Wraps the launcher so dsh can run with `--expose-internals` (required for
+   HMR).
+5. Applies the version patcher for 0.1.5 — which fixes the real
+   Termux/Android problems:
+   - **sharp** — no native android-arm64 build exists; installs the WASM
+     runtime so image handling works.
+   - **flock** — dsh's session-write lease needs a native `flock`, but the
+     upstream package supports only linux/darwin. Ships a prebuilt Bionic
+     `system.node` + an android-aware loader (this unblocks dsh 0.1.5+ entirely).
+   - **hard-link → rename** — Android SELinux blocks hard links in
+     app-private storage, which breaks session writes and new-file writes.
+     These are switched to `rename()`.
+6. Runs your local patch file (`--with-local-patches`, optional).
+
+## Adding your own host-specific patches
+
+The repo is deliberately free of host-specific glue. Put yours in a separate
+file and point at it:
+
+```bash
+bash provision.sh --with-local-patches ~/dsh-local-patches.sh
+```
+
+Your file runs after all public patches, so it can override anything. It's a
+natural place for bridges, relays, model config, or profile tweaks that would
+break a stranger's phone. See `patches/local-patches.d/README.md` for guidance.
+
+## Layout
+
+```
+dsh-termux-core/
+├─ provision.sh              # install OR update (pinned 0.1.5-rc.1, idempotent)
+├─ patches/
+│  ├─ 0.1.5/                 # 0.1.5-rc.1 patcher (sharp + flock + hard-link→rename)
+│  ├─ local-patches.d/       # documented --with-local-patches hook
+│  └─ dsh-fs-local-link-rename.patch
+├─ flock/                    # the 0.1.5+ blocker fix: Bionic flock addon
+│  ├─ src/ build/ lib/       # C source, binding.gyp, android-aware loader
+│  ├─ prebuilt/system.node   # Bionic/android-arm64 compiled addon
+│  ├─ tests/                 # flock tests
+│  └─ install-android-flock.sh
+├─ browser/                  # headless Chromium (proot) + MCP tools
+├─ mcp-web-tools/            # searxng/trafilatura MCP server
+└─ docs/
+   ├─ patch-matrix.md        # every fix, its edit site, and whether upstreamed
+   └─ upgrade-runbook.md     # verified upgrade + verification steps
+```
+
+## Prerequisites
+
+- Termux on Android 11+ (API 30). ARM64 is the only tested/prebuilt arch
+  (the flock `system.node` is android-arm64).
+- `git` (the script installs everything else itself).
+
+## The browser backend
+
+A real headless browser on Termux, exposed as MCP tools:
+
+- `chromium-proot-launcher` forwards Chromium args into a proot-distro Debian
+  rootfs (there is no native Android Chromium package for Termux).
+- `browse.py` (nodriver + stealth flags) renders a page to JSON — title,
+  visible text, optional screenshot — with a warm shared profile to clear
+  Cloudflare.
+- `proot_reap.py` reaps ONLY the Chromium/proot tree matching the profile
+  substring (never a broad-kill).
+- `mcp-web-tools/server.mjs` adds `searxng_search` / `extract` / `fetch_raw`
+  against your own local searXNG instance.
+
+Setup + env vars: `browser/README.md`.
+
+## Documentation
+
+- `docs/patch-matrix.md` — every Termux/Android fix, what it edits, where the
+  patcher lives, and whether it's upstreamed.
+- `docs/upgrade-runbook.md` — the verified upgrade sequence + how to verify a
+  working install.
+
+## Also worth knowing
+
+- [lilyco-42/dsh-termux](https://github.com/lilyco-42/dsh-termux) — another
+  Termux installer with a different approach (native libvips sharp, koffi
+  build). This repo instead ships the flock fix lilys's doesn't have (which
+  unblocks dsh 0.1.5) and never touches your credentials.
+- [ErEbusE/dsh-termux](https://github.com/ErEbusE/dsh-termux) — the source of
+  the `dsh-fs-local` hard-link→rename fix adopted here (MIT, attributed in
+  `patches/0.1.5/dsh-fs-local-link-rename.patch`).
+
+## License
+
+MIT.
