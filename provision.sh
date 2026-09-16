@@ -86,8 +86,10 @@ if [[ ! -d "$PREFIX" ]]; then
 fi
 
 # --- 1) Termux build/runtime deps ---------------------------------------------
+# git is not part of the Termux bootstrap; ensure it too so the script is
+# self-sufficient (e.g. when invoked from a tree fetched without git).
 log "Ensuring Termux packages"
-pkg install -y cmake python libandroid-spawn libvips pkg-config clang make >/dev/null
+pkg install -y git cmake python libandroid-spawn libvips pkg-config clang make >/dev/null
 
 # --- 2) Patch node-gyp common.gypi (node-pty native build on Android) ---------
 # node-pty's gyp references android_ndk_path, which Termux lacks; we define the

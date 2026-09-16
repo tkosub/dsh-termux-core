@@ -9,6 +9,14 @@ Termux fix is applied and re-applied automatically.
 Nothing in this repo is host-specific: no keys, no tokens, no personal config.
 Your own tweaks go in a local file you pass at install time (see below).
 
+## Prerequisites
+
+- Termux on Android 11+ (API 30). ARM64 is the only tested/prebuilt arch
+  (the flock `system.node` is android-arm64).
+- `provision.sh` installs everything else itself — build tools, git, and the
+  dsh package. You only need `pkg install -y git` up front so you can clone
+  the repo.
+
 ## Quick start
 
 ```bash
@@ -55,6 +63,22 @@ each Termux fix on every run:
 It also fixes node-gyp for building native add-ons (node-pty) and wraps the
 launcher so dsh can run with `--expose-internals` (required for HMR).
 
+## The browser backend
+
+A real headless browser on Termux, exposed as MCP tools:
+
+- `chromium-proot-launcher` forwards Chromium args into a proot-distro Debian
+  rootfs (there is no native Android Chromium package for Termux).
+- `browse.py` (nodriver + stealth flags) renders a page to JSON — title,
+  visible text, optional screenshot — with a warm shared profile to clear
+  Cloudflare.
+- `proot_reap.py` reaps ONLY the Chromium/proot tree matching the profile
+  substring (never a broad-kill).
+- `mcp-web-tools/server.mjs` adds `searxng_search` / `extract` / `fetch_raw`
+  against your own local searXNG instance.
+
+Setup + env vars: `browser/README.md`.
+
 ## Adding your own host-specific patches
 
 The repo is deliberately free of host-specific glue. Put yours in a separate
@@ -88,28 +112,6 @@ dsh-termux-core/
    ├─ patch-matrix.md        # every fix, what it does, where it's applied
    └─ upgrade-runbook.md     # upgrade + verification steps
 ```
-
-## Prerequisites
-
-- Termux on Android 11+ (API 30). ARM64 is the only tested/prebuilt arch
-  (the flock `system.node` is android-arm64).
-- `git` (the script installs everything else itself).
-
-## The browser backend
-
-A real headless browser on Termux, exposed as MCP tools:
-
-- `chromium-proot-launcher` forwards Chromium args into a proot-distro Debian
-  rootfs (there is no native Android Chromium package for Termux).
-- `browse.py` (nodriver + stealth flags) renders a page to JSON — title,
-  visible text, optional screenshot — with a warm shared profile to clear
-  Cloudflare.
-- `proot_reap.py` reaps ONLY the Chromium/proot tree matching the profile
-  substring (never a broad-kill).
-- `mcp-web-tools/server.mjs` adds `searxng_search` / `extract` / `fetch_raw`
-  against your own local searXNG instance.
-
-Setup + env vars: `browser/README.md`.
 
 ## Documentation
 
