@@ -13,9 +13,9 @@ Your own tweaks go in a local file you pass at install time (see below).
 
 - Termux on Android 11+ (API 30). ARM64 is the only tested/prebuilt arch
   (the flock `system.node` is android-arm64).
-- `provision.sh` installs everything else itself — build tools, git, and the
-  dsh package. You only need `pkg install -y git` up front so you can clone
-  the repo.
+- `provision.sh` installs everything else itself — nodejs, build tools, git,
+  and the dsh package. You only need `pkg install -y git` up front so you can
+  clone the repo.
 
 ## Quick start
 
