@@ -23,8 +23,9 @@ set -euo pipefail
 
 # PREFIX: Termux sets it in the environment. provision.sh passes it through to
 # this patcher; when run standalone we derive the same conventional location
-# from $HOME. No path is hard-coded.
-PREFIX="${PREFIX:-$(dirname "$(dirname "$HOME")")/usr}"
+# from $HOME (Termux home is $PREFIX/files/home, so PREFIX = $(dirname $HOME)).
+# No path is hard-coded.
+PREFIX="${PREFIX:-$(dirname "$HOME")/usr}"
 DSH_DIR="$PREFIX/lib/node_modules/@deepseek-ai/dsh"
 SHARP_DIR="$DSH_DIR/node_modules/sharp"
 

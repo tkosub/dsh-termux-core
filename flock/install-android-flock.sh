@@ -28,8 +28,9 @@ if [ -z "$PREFIX" ]; then
   esac
 fi
 if [ -z "$PREFIX" ]; then
-  # Termux sets PREFIX; fall back to the conventional location relative to HOME.
-  PREFIX="$(dirname "$(dirname "$HOME")")/usr"
+  # Termux sets PREFIX; fall back to the conventional location relative to HOME
+  # (Termux home is $PREFIX/files/home, so PREFIX = $(dirname $HOME)).
+  PREFIX="$(dirname "$HOME")/usr"
 fi
 
 DSH_DIR="$PREFIX/lib/node_modules/@deepseek-ai/dsh"
