@@ -42,15 +42,20 @@ ALLOW_SCRIPTS="@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,pr
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APPLY_015="$REPO_DIR/patches/0.1.5/dsh-apply-015-patches.sh"
 
-NPM_GLOBAL_ROOT="$(npm root -g)"
-DSH_ROOT="$NPM_GLOBAL_ROOT/@deepseek-ai/dsh"
-DSH_BIN="$DSH_ROOT/lib/bin.js"
-SHARP_DIR="$DSH_ROOT/node_modules/sharp"
-WRAPPER="$DSH_ROOT/dsh-termux-wrapper.sh"
-NODE_VER="$(node -v)"
-NODE_VER_SHORT="${NODE_VER#v}"          # strip leading 'v' (cache dir is 26.4.0, not v26.4.0)
-GYP_GYPI="$HOME/.cache/node-gyp/$NODE_VER_SHORT/include/node/common.gypi"
+# Node/npm-dependent paths are resolved AFTER the pkg step below, because a
+# fresh Termux does not ship nodejs — it must be installed first (see step 1).
+NPM_GLOBAL_ROOT=""
+DSH_ROOT=""
+DSH_BIN=""
+SHARP_DIR=""
+WRAPPER=""
+NODE_VER=""
+NODE_VER_SHORT=""
+GYP_GYPI=""
 DSH_BIN_LINK="$PREFIX/bin/dsh"
+
+log() { echo "==> $*"; }
+warn() { echo "!!! $*" >&2; }
 
 FORCE=0
 LOCAL_PATCHES=""
@@ -76,9 +81,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-log() { echo "==> $*"; }
-warn() { echo "!!! $*" >&2; }
-
 # --- Preflight ----------------------------------------------------------------
 if [[ ! -d "$PREFIX" ]]; then
     warn "PREFIX '$PREFIX' does not exist. Is this Termux/Android?"
@@ -86,10 +88,22 @@ if [[ ! -d "$PREFIX" ]]; then
 fi
 
 # --- 1) Termux build/runtime deps ---------------------------------------------
-# git is not part of the Termux bootstrap; ensure it too so the script is
-# self-sufficient (e.g. when invoked from a tree fetched without git).
+# Neither git nor nodejs is part of the Termux bootstrap: a fresh Termux ships
+# only pkg + a minimal toolset. nodejs (which brings npm) is mandatory before
+# anything below can run, so it is installed FIRST and the node-dependent
+# paths are resolved right after (see step 2).
 log "Ensuring Termux packages"
-pkg install -y git cmake python libandroid-spawn libvips pkg-config clang make >/dev/null
+pkg install -y git nodejs cmake python libandroid-spawn libvips pkg-config clang make >/dev/null
+
+# Resolve node/npm-dependent paths now that node is guaranteed present.
+NPM_GLOBAL_ROOT="$(npm root -g)"
+DSH_ROOT="$NPM_GLOBAL_ROOT/@deepseek-ai/dsh"
+DSH_BIN="$DSH_ROOT/lib/bin.js"
+SHARP_DIR="$DSH_ROOT/node_modules/sharp"
+WRAPPER="$DSH_ROOT/dsh-termux-wrapper.sh"
+NODE_VER="$(node -v)"
+NODE_VER_SHORT="${NODE_VER#v}"          # strip leading 'v' (cache dir is 26.4.0, not v26.4.0)
+GYP_GYPI="$HOME/.cache/node-gyp/$NODE_VER_SHORT/include/node/common.gypi"
 
 # --- 2) Patch node-gyp common.gypi (node-pty native build on Android) ---------
 # node-pty's gyp references android_ndk_path, which Termux lacks; we define the
