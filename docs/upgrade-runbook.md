@@ -12,6 +12,7 @@ Stop DSH after finishing your work, update this repository with
 | Unrecognized package version or source | Update this repository. If the error remains, report it; do not force a patch onto unfamiliar code. |
 | Native file support missing or outdated | Run the installer again. If you set `DSH_FLOCK_PREBUILD_DIR`, use the same value when installing and running DSH. |
 | Checks fail on an existing installation | Retry with `bash provision.sh --force` to rebuild the DSH package. Keep the complete failure message if it still fails. |
+| Web/browser MCP tools missing or outdated | Install or refresh them with `bash provision.sh --with-web-tools`. The flag is independent of `--force`. |
 | Browser asks for access or rejects an old link | Open the complete address from the current `dsh web` launch, including the token. |
 
 To rerun only the functional checks:

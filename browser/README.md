@@ -16,8 +16,19 @@ either relative to this directory or configurable via environment variables.
 | `stealth_browser.py` | `nodriver` wrapper: anti-Cloudflare flags + warm shared profile. |
 | `browse.py` | One-shot page render to JSON (title + visible text + optional screenshot); called by the MCP server. |
 | `proot_reap.py` | Reaps ONLY the Chromium/proot tree whose `--user-data-dir` matches a substring (never an unfiltered `pkill`). |
+| `nodriver_cf_test.py` | Smoke test: launches the backend, checks stealth flags, probes a bot-detection page and a Cloudflare target; exit 0 = STEALTH_OK. |
 | `server.mjs` | MCP stdio server exposing `browse` (JS-rendered page text + screenshot). |
 | `../mcp-web-tools/server.mjs` | MCP stdio server exposing `searxng_search`, `extract` (trafilatura), `fetch_raw` (curl). |
+
+## Install (recommended)
+
+`bash provision.sh --with-web-tools` (from the repository root) installs the
+prerequisites, the Debian proot rootfs with Chromium, `nodriver` + `trafilatura`
+in the Termux system Python, then copies this whole `browser/` directory and
+`mcp-web-tools/server.mjs` into `~/.dsh/mcp/{browser-tools,web-tools}/`.
+Re-running the flag refreshes the deployed copies from the repository — the
+live files are a deployment, not an independent source. To host the stack
+elsewhere instead, follow the manual steps below.
 
 ## Prerequisites (Termux)
 
@@ -48,7 +59,7 @@ to point at them explicitly).
 | `BROWSER_TOOLS_PYTHONPATH` | — | Extra `:`-separated dirs to import `stealth_browser`/`proot_reap` from |
 | `BROWSER_USER_DATA` | `~/.cache/browser-tools/user-data` | Shared warm Chromium profile dir |
 | `BROWSER_PROFILE_SUBSTR` | `browser-tools/user-data` | Substring used to reap the proot tree |
-| `CHROMIUM_PROOT_LAUNCHER` | `~/bin/chromium-proot-launcher` | Launcher path for `stealth_browser.py` |
+| `CHROMIUM_PROOT_LAUNCHER` | the `chromium-proot-launcher` next to this file | Launcher path for `stealth_browser.py` |
 | `PROOT_DISTRO` / `PROOT_CHROMIUM` | `debian` / `/usr/lib/chromium/chromium` | proot rootfs + binary for the launcher |
 | `SEARXNG_URL` (web-tools) | `http://127.0.0.1:8888` | URL of a private searXNG instance |
 

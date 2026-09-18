@@ -58,7 +58,9 @@ check is to start DSH, send a prompt, and save and reopen a conversation.
 
 ## Optional features
 
-- [Browser and web tools](browser/README.md): separate setup; not required for DSH.
+- [Browser and web tools](browser/README.md): install with
+  `bash provision.sh --with-web-tools` (adds the two MCP servers plus the
+  proot Chromium backend to `~/.dsh/mcp/`). Not required for DSH.
 - [Run an additional setup script](patches/local-patches.d/README.md).
 - [Compatibility fixes and tested versions](docs/patch-matrix.md).
 - [Development checks](docs/verification.md).

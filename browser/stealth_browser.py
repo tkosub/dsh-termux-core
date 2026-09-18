@@ -10,8 +10,10 @@ Requires:
   - browser/chromium-proot-launcher (forwards args into proot-distro)
   - nodriver pip-installed in the active venv
 
-Environment (all optional; defaults are $HOME-relative, no absolute paths):
-  CHROMIUM_PROOT_LAUNCHER  path to the launcher (default ~/bin/chromium-proot-launcher)
+Environment (all optional; defaults are $HOME-relative or co-located, no
+absolute paths):
+  CHROMIUM_PROOT_LAUNCHER  path to the launcher (default: the
+                            chromium-proot-launcher next to this file)
   BROWSER_USER_DATA        Chromium profile dir (default ~/.cache/browser-tools/user-data)
 
 Usage:
@@ -22,9 +24,10 @@ Usage:
 import os
 import nodriver as uc
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 LAUNCHER = os.environ.get(
     "CHROMIUM_PROOT_LAUNCHER",
-    os.path.join(os.path.expanduser("~"), "bin", "chromium-proot-launcher"),
+    os.path.join(HERE, "chromium-proot-launcher"),
 )
 USER_DATA = os.environ.get(
     "BROWSER_USER_DATA",
