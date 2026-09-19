@@ -10,8 +10,7 @@ Validation:
 
 Process hygiene: launches a UNIQUE per-run profile dir and reaps its own proot
 Chromium in `finally` (via proot_reap.reap). `browser.stop()` alone leaks the
-proot/Chromium tree — see the (retired) cloudflare-stealth-browser skill's
-proot-process-lifecycle note.
+proot/Chromium tree — always reap the tree after the browser stops.
 
 Portable by design (repo policy): no absolute host paths. The launcher and the
 reaper are resolved from this file's directory (browser/ ships them
