@@ -14,7 +14,7 @@ Environment (all optional; defaults are $HOME-relative or co-located, no
 absolute paths):
   CHROMIUM_PROOT_LAUNCHER  path to the launcher (default: the
                             chromium-proot-launcher next to this file)
-  BROWSER_USER_DATA        Chromium profile dir (default ~/.cache/browser-tools/user-data)
+  BROWSER_USER_DATA        Chromium profile dir (default ~/.cache/browser-session/user-data)
 
 Usage:
   from stealth_browser import stealth_start, get_stealth_args
@@ -31,7 +31,7 @@ LAUNCHER = os.environ.get(
 )
 USER_DATA = os.environ.get(
     "BROWSER_USER_DATA",
-    os.path.join(os.path.expanduser("~"), ".cache", "browser-tools", "user-data"),
+    os.path.join(os.path.expanduser("~"), ".cache", "browser-session", "user-data"),
 )
 REAL_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
            "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36")

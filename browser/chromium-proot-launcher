@@ -1,7 +1,12 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Launcher wrapper so nodriver (running in Termux/Android) can spawn the
 # Debian Chromium that lives inside the proot-distro rootfs. nodriver calls
 # this as: <wrapper> [chromium args...]; we forward verbatim into the rootfs.
+#
+# POSIX sh (not bash) on purpose: /bin/sh exists at a fixed path on every
+# Android device regardless of PATH/env stripping, so this stays portable
+# with no Termux-absolute paths. `proot-distro` itself is a Termux tool and
+# is resolved via PATH.
 #
 # Override the distro or binary with env (defaults: Debian, system Chromium):
 #   PROOT_DISTRO=debian

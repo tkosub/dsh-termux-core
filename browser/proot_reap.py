@@ -9,10 +9,10 @@ ancestor chain before signalling — do not add an unfiltered `pkill`/SIGKILL pa
 Import and call in `finally` AFTER `browser.stop()`:
 
     from proot_reap import reap
-    reap("browser-tools/user-data")   # your unique --user-data-dir substring
+    reap("browser-session/user-data")   # your unique --user-data-dir substring
 
 Runnable standalone for a one-off reap:
-    python proot_reap.py browser-tools/user-data
+    python proot_reap.py browser-session/user-data
 """
 import os
 import signal

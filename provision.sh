@@ -84,20 +84,20 @@ if [[ "$WEB_TOOLS" == 1 ]]; then
     # Deployment is a pure copy of the repo files (this is their only
     # canonical source). Rerunning the flag refreshes the live copies.
     MCP_DIR="$HOME/.dsh/mcp"
-    mkdir -p "$MCP_DIR/web-tools" "$MCP_DIR/browser-tools"
+    mkdir -p "$MCP_DIR/web-tools" "$MCP_DIR/browser-session"
     cp -f "$REPO_DIR/mcp-web-tools/server.mjs" "$MCP_DIR/web-tools/"
-    for f in server.mjs browse.py stealth_browser.py proot_reap.py \
-             chromium-proot-launcher nodriver_cf_test.py; do
-        cp -f "$REPO_DIR/browser/$f" "$MCP_DIR/browser-tools/"
+    for f in session_server.mjs session_serve.py stealth_browser.py \
+             proot_reap.py chromium-proot-launcher nodriver_cf_test.py; do
+        cp -f "$REPO_DIR/browser/$f" "$MCP_DIR/browser-session/"
     done
-    chmod 755 "$MCP_DIR/browser-tools/chromium-proot-launcher"
+    chmod 755 "$MCP_DIR/browser-session/chromium-proot-launcher"
     # Fail fast on syntax errors before declaring the install done.
-    python -m py_compile "$MCP_DIR/browser-tools/"*.py
+    python -m py_compile "$MCP_DIR/browser-session/"*.py
     node --check "$MCP_DIR/web-tools/server.mjs"
-    node --check "$MCP_DIR/browser-tools/server.mjs"
-    log "MCP tools deployed to $MCP_DIR (web-tools + browser-tools)."
-    log 'Wire them as MCP rows in your DSH profile; see browser/README.md.'
-    log 'Smoke test: python3 ~/.dsh/mcp/browser-tools/nodriver_cf_test.py'
+    node --check "$MCP_DIR/browser-session/session_server.mjs"
+    log "MCP tools deployed to $MCP_DIR (web-tools + browser-session)."
+    log 'Wire them as an MCP row in your DSH profile (serverName: browser); see browser/README.md.'
+    log 'Smoke test: python3 ~/.dsh/mcp/browser-session/nodriver_cf_test.py'
 fi
 
 log 'Checking the installed application'

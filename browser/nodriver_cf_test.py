@@ -15,7 +15,7 @@ proot-process-lifecycle note.
 
 Portable by design (repo policy): no absolute host paths. The launcher and the
 reaper are resolved from this file's directory (browser/ ships them
-alongside); override with CHROMIUM_PROOT_LAUNCHER / BROWSER_TOOLS_PYTHONPATH
+alongside); override with CHROMIUM_PROOT_LAUNCHER / BROWSER_PYTHONPATH
 when running from a deployment copy.
 """
 import asyncio
@@ -26,9 +26,9 @@ import nodriver as uc
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # This file's own directory first (repo ships proot_reap.py alongside), then
-# env-provided extra dirs (e.g. the deployed browser-tools dir).
+# env-provided extra dirs (e.g. the deployed copy dir).
 sys.path.insert(0, HERE)
-for extra in reversed(os.environ.get("BROWSER_TOOLS_PYTHONPATH", "").split(":")):
+for extra in reversed(os.environ.get("BROWSER_PYTHONPATH", "").split(":")):
     if extra:
         sys.path.insert(0, extra)
 from proot_reap import reap
