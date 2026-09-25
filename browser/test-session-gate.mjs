@@ -181,6 +181,21 @@ try {
   const st13 = await s.call("status", {});
   check("oversized idle clamps to the 30 min cap", o12.ok === true && st13.idle_ms_left <= 30 * 60_000, st13);
   await s.call("close", { owner: "erin" });
+
+  console.log("records that cannot be verified must never lock the gate");
+  writeFileSync(s.lockFile, "");                       // what flock(1) leaves behind
+  const o14 = await s.call("open", { url: "http://h", owner: "vera" });
+  check("an EMPTY record is taken over, not honoured", o14.ok === true, o14);
+  await s.call("close", { owner: "vera" });
+  writeFileSync(s.lockFile, "{ not json at all");
+  const o15 = await s.call("open", { url: "http://h", owner: "vera" });
+  check("a GARBAGE record is taken over", o15.ok === true, o15);
+  await s.call("close", { owner: "vera" });
+  writeFileSync(s.lockFile, JSON.stringify({ owner: "old-build", pid: 1, started: "x" })); // no starttime proof
+  const o16 = await s.call("open", { url: "http://h", owner: "vera" });
+  check("a record without a start-time proof is taken over", o16.ok === true, o16);
+  await s.call("close", { owner: "vera" });
+  check("status reports free after the takeovers", (await s.call("status", {})).session_open === false);
 } finally {
   s.child.stdin.end();
   await sleep(300);

@@ -202,14 +202,30 @@ function procStartTicks(pid) {
   }
 }
 
-function lockRecord() {
-  try { return JSON.parse(readFileSync(LOCK_FILE, "utf8")); } catch { return null; }
+function readRawLock() {
+  try { return readFileSync(LOCK_FILE, "utf8"); } catch { return null; }
 }
+
+function parseLock(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const o = JSON.parse(raw);
+    return o && typeof o === "object" ? o : null;
+  } catch {
+    return null;
+  }
+}
+
+function lockRecord() { return parseLock(readRawLock()); }
 
 function lockAlive(rec) {
   if (!rec || !Number.isInteger(rec.pid) || rec.pid <= 0) return false;
   if (typeof rec.starttime !== "string" && typeof rec.starttime !== "number") return false;
   return procStartTicks(rec.pid) === rec.starttime;
+}
+
+function sleepSync(ms) {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {}
 }
 
 function holderOf(rec) {
@@ -222,40 +238,49 @@ function holderOf(rec) {
   };
 }
 
-function acquireLock(owner) {
-  const rec = lockRecord();
-  if (lockAlive(rec)) {
-    if (String(rec.owner) === owner && rec.pid === process.pid) return { ok: true };
-    return { ok: false, held: holderOf(rec) };
-  }
-  if (rec) {
-    log(`clearing stale lock record (holder pid ${rec.pid} is gone)`);
-    try { rmSync(LOCK_FILE, { force: true }); } catch {}
-  }
-  const mine = {
+function ownRecord(owner) {
+  return {
     owner,
     pid: process.pid,
     started: new Date().toISOString(),
     starttime: procStartTicks(process.pid),
     session_id: session.id,
   };
-  try {
-    mkdirSync(RUN_DIR, { recursive: true });
-    writeFileSync(LOCK_FILE, JSON.stringify(mine) + "\n", { flag: "wx", mode: 0o600 });
-  } catch (e) {
-    if (e && e.code === "EEXIST") {
-      // lost a race against another server: re-read and honour it
-      const now = lockRecord();
-      if (lockAlive(now)) {
-        if (String(now.owner) === owner && now.pid === process.pid) return { ok: true };
-        return { ok: false, held: holderOf(now) };
-      }
-      return { ok: false, held: holderOf(now), guidance: "lock record present but its holder cannot be verified; not taking it" };
+}
+
+function acquireLock(owner) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const raw = readRawLock();
+    const rec = parseLock(raw);
+    if (lockAlive(rec)) {
+      if (String(rec.owner) === owner && rec.pid === process.pid) return { ok: true };
+      return { ok: false, held: holderOf(rec) };
     }
-    return { ok: false, error: `cannot write ${LOCK_FILE}: ${e.message}` };
+    if (raw !== null) {
+      // The file exists but does not prove a LIVE holder: an empty or partial
+      // write (flock(1) and friends create this path empty), a record from an
+      // older build, or a holder process that is gone. Honouring such a record
+      // would lock the browser out forever — the one failure this gate must
+      // never produce. Only a verified live holder may ever refuse a caller.
+      const hadPid = !!(rec && Number.isInteger(rec.pid));
+      log(`clearing unusable lock record (${hadPid ? `holder pid ${rec.pid} is not alive` : "empty or unparseable"})`);
+      try { rmSync(LOCK_FILE, { force: true }); } catch {}
+      if (!hadPid) sleepSync(120);   // a concurrent acquire may be mid-write
+    }
+    try {
+      mkdirSync(RUN_DIR, { recursive: true });
+      writeFileSync(LOCK_FILE, JSON.stringify(ownRecord(owner)) + "\n", { flag: "wx", mode: 0o600 });
+      session.owner = owner;
+      return { ok: true };
+    } catch (e) {
+      if (e && e.code === "EEXIST") continue;   // raced another claimant: re-evaluate it
+      return { ok: false, error: `cannot write ${LOCK_FILE}: ${e.message}` };
+    }
   }
-  session.owner = owner;
-  return { ok: true };
+  const rec = lockRecord();
+  return lockAlive(rec)
+    ? { ok: false, held: holderOf(rec) }
+    : { ok: false, error: `${LOCK_FILE} could not be acquired or verified` };
 }
 
 function releaseLock() {
