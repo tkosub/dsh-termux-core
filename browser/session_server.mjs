@@ -1,21 +1,46 @@
-// browser-session — stateful MCP server exposing ONE browser session.
-// Tools: open / act / close. The python actor owns the Chromium lifecycle;
-// this node process is a thin JSONL proxy plus the idle-retire timer.
+// browser-session — MCP server exposing ONE declared browser session.
+// Tools: status / open / act / close / browse.
 //
-// Resource model: exactly one session per server process. Chromium exists
-// only between open and close (or idle retirement). A failed actor is
-// reaped/replaced; errors never wedge later calls.
+// Resource model: Chromium costs ~800 MB on this phone, so a browser session is
+// an EXPLICIT act with a declared owner, and there is exactly one at a time
+// across every DSH session (this server is a runtime-global singleton, spawned
+// once per `dsh web` process and shared by all sessions).
+//
+// Enforcement lives HERE, not in the Chromium launcher: this is the only path
+// the MCP tools have to a browser, it knows the caller's declaration, and it can
+// answer a second caller with a structured refusal instead of a crashed launch.
+// The launcher stays a portable pass-through.
+//
+// Locking: an O_EXCL lock record naming the owner, plus a liveness proof — the
+// record is only honoured while the recorded pid still exists AND its kernel
+// start time matches, so a killed or crashed server releases the session
+// automatically and a stale record can never lock the browser out. Nothing is
+// inherited into proot/Chromium, so no orphan process can hold it. The record
+// doubles as the "held by" report.
+//
+// There is no preemption path: only the owner may close its session, and closing
+// is a CDP close, never a signal.
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
 
 const VERSION = "2024-11-05";
 const PY = process.env.PYTHON3 || "python3";
 const SERVE = process.env.BROWSER_SESSION_SERVE ||
   join(fileURLToPath(new URL(".", import.meta.url)), "session_serve.py");
 const IDLE_MS_DEFAULT = 10 * 60 * 1000;
+const IDLE_MS_MIN = 30_000;
+const IDLE_MS_MAX = 30 * 60 * 1000;   // no session may be held indefinitely
 const TIMEOUT_DEFAULT = 90_000;
+const OWNER_MAX = 80;
+
+// Portable by construction: derived from the home directory, overridable, with
+// no host-specific absolute path baked in.
+const RUN_DIR = process.env.DSH_BROWSER_SESSION_RUN || join(homedir(), ".dsh", "run");
+const LOCK_FILE = join(RUN_DIR, "browser-session.lock");
 
 // ---------------------------------------------------------------------------
 // actor management
@@ -24,6 +49,7 @@ const TIMEOUT_DEFAULT = 90_000;
 let actor = null;         // {child, pending: Map<id,{resolve,reject,timer}>, nextId}
 let session = {
   id: null,               // session id, stable while the actor is healthy
+  owner: null,            // declared owner of the current session
   browser: false,         // true while a page may be open inside the actor
   idleTimer: null,
   idleMs: IDLE_MS_DEFAULT,
@@ -133,8 +159,8 @@ function touchIdle() {
     log("idle timeout — closing session");
     session.closed = true;
     actorCall({ cmd: "close" }, 15_000)
-      .finally(() => reapActor())
-      .catch(() => {});
+      .finally(() => { reapActor(); releaseLock(); })
+      .catch(() => { releaseLock(); });
   }, session.idleMs);
   if (session.idleTimer.unref) session.idleTimer.unref();
 }
@@ -144,12 +170,139 @@ function clearIdle() {
   session.idleTimer = null;
 }
 
+function clampIdle(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return IDLE_MS_DEFAULT;
+  return Math.min(Math.max(n, IDLE_MS_MIN), IDLE_MS_MAX);
+}
+
 async function teardown() {
   clearIdle();
   if (actor) {
     try { await actorCall({ cmd: "shutdown" }, 10_000); } catch {}
   }
   reapActor();
+  releaseLock();
+}
+
+// ---------------------------------------------------------------------------
+// ownership: declared owner + single-session lock with a liveness proof
+// ---------------------------------------------------------------------------
+
+// Kernel start time (field 22 of /proc/<pid>/stat, i.e. index 19 past ") ").
+// Together with the pid this identifies the exact process, closing the pid-reuse
+// window that a bare "is the pid alive" check leaves open.
+function procStartTicks(pid) {
+  try {
+    const s = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const rest = s.slice(s.lastIndexOf(")") + 2).split(" ");
+    return rest[19] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function lockRecord() {
+  try { return JSON.parse(readFileSync(LOCK_FILE, "utf8")); } catch { return null; }
+}
+
+function lockAlive(rec) {
+  if (!rec || !Number.isInteger(rec.pid) || rec.pid <= 0) return false;
+  if (typeof rec.starttime !== "string" && typeof rec.starttime !== "number") return false;
+  return procStartTicks(rec.pid) === rec.starttime;
+}
+
+function holderOf(rec) {
+  return {
+    owner: rec && rec.owner ? String(rec.owner) : "unknown",
+    since: rec && rec.started ? rec.started : null,
+    session_id: rec && rec.session_id ? rec.session_id : null,
+    pid: rec && rec.pid ? rec.pid : null,
+    server: rec && rec.pid === process.pid ? "this dsh runtime" : "another dsh runtime",
+  };
+}
+
+function acquireLock(owner) {
+  const rec = lockRecord();
+  if (lockAlive(rec)) {
+    if (String(rec.owner) === owner && rec.pid === process.pid) return { ok: true };
+    return { ok: false, held: holderOf(rec) };
+  }
+  if (rec) {
+    log(`clearing stale lock record (holder pid ${rec.pid} is gone)`);
+    try { rmSync(LOCK_FILE, { force: true }); } catch {}
+  }
+  const mine = {
+    owner,
+    pid: process.pid,
+    started: new Date().toISOString(),
+    starttime: procStartTicks(process.pid),
+    session_id: session.id,
+  };
+  try {
+    mkdirSync(RUN_DIR, { recursive: true });
+    writeFileSync(LOCK_FILE, JSON.stringify(mine) + "\n", { flag: "wx", mode: 0o600 });
+  } catch (e) {
+    if (e && e.code === "EEXIST") {
+      // lost a race against another server: re-read and honour it
+      const now = lockRecord();
+      if (lockAlive(now)) {
+        if (String(now.owner) === owner && now.pid === process.pid) return { ok: true };
+        return { ok: false, held: holderOf(now) };
+      }
+      return { ok: false, held: holderOf(now), guidance: "lock record present but its holder cannot be verified; not taking it" };
+    }
+    return { ok: false, error: `cannot write ${LOCK_FILE}: ${e.message}` };
+  }
+  session.owner = owner;
+  return { ok: true };
+}
+
+function releaseLock() {
+  const rec = lockRecord();
+  // Never release a session this process does not hold.
+  if (!rec || rec.pid === process.pid) {
+    try { rmSync(LOCK_FILE, { force: true }); } catch {}
+  }
+  session.owner = null;
+}
+
+function requireOwner(args) {
+  const raw = args ? args.owner : undefined;
+  if (typeof raw !== "string" || !raw.trim()) {
+    return {
+      error:
+        "owner is required and no browser was started. Declare who owns this session — " +
+        "your DSH session id, or your role/name if you work in a team — e.g. owner=\"<your id>\". " +
+        "Only the owner can act on or close the session.",
+    };
+  }
+  return { owner: raw.trim().slice(0, OWNER_MAX) };
+}
+
+function heldBy(held, extra) {
+  return {
+    ok: false,
+    refused: "held_by",
+    held_by: held ? held.owner : "unknown",
+    held_since: held ? held.since : null,
+    held_session_id: held ? held.session_id : null,
+    guidance:
+      "Another agent owns the browser session. Ask it to close it (mcp__browser__close with its owner). " +
+      "Do NOT kill any chromium/proot process to get the session; an abandoned session retires on its own " +
+      "idle timer. Check who holds it with mcp__browser__status.",
+    ...extra,
+  };
+}
+
+function noOwner(error) {
+  return { ok: false, refused: "no_owner", guidance: error };
+}
+
+// The owner declaration is server-side policy; the python actor does not take it.
+function strip(args) {
+  const { owner, ...rest } = args ?? {};
+  return rest;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,13 +311,19 @@ async function teardown() {
 
 function markFailed() {
   // any error response from the actor means its session is unusable:
-  // tear down so the next call starts clean.
+  // tear down so the next call starts clean, and hand the browser back.
   clearIdle();
   session.closed = true;
   if (actor) reapActor();
+  releaseLock();
 }
 
 async function doOpen(args) {
+  const o = requireOwner(args);
+  if (o.error) return noOwner(o.error);
+  const got = acquireLock(o.owner);
+  if (!got.ok) return got.error ? { ok: false, refused: "lock_error", error: got.error } : heldBy(got.held);
+  const rest = strip(args);
   if (actor) {
     await actorCall({ cmd: "close" }, 15_000).catch(() => {});
     reapActor();
@@ -172,24 +331,35 @@ async function doOpen(args) {
   session.id = newSessionId();
   session.browser = false;
   session.closed = false;
-  session.idleMs = Number(args.idle_ms) > 0 ? Number(args.idle_ms) : IDLE_MS_DEFAULT;
-  const res = await actorCall({ cmd: "open", ...args });
+  session.idleMs = clampIdle(rest.idle_ms);
+  const res = await actorCall({ cmd: "open", ...rest });
   if (res && res.ok) {
     session.browser = true;
+    // rewrite the record now that a session id exists
+    releaseLock();
+    if (!acquireLock(o.owner).ok) {
+      return { ...res, session_id: session.id, owner: o.owner, warning: "session opened but the lock was lost" };
+    }
     touchIdle();
   } else {
     markFailed();
   }
-  return { session_id: session.id, ...res };
+  return { session_id: session.id, owner: o.owner, ...res };
 }
 
 async function doAct(args) {
-  if (session.closed && !args.url) {
+  const o = requireOwner(args);
+  if (o.error) return noOwner(o.error);
+  const got = acquireLock(o.owner);
+  if (!got.ok) return got.error ? { ok: false, refused: "lock_error", error: got.error } : heldBy(got.held);
+  const rest = strip(args);
+  if (session.closed && !rest.url) {
+    releaseLock();
     return { ok: false, error: "session was closed; call open first (or pass url to act to start a new session)" };
   }
   if (!session.id) session.id = newSessionId();
   session.closed = false;
-  const res = await actorCall({ cmd: "act", ...args });
+  const res = await actorCall({ cmd: "act", ...rest });
   if (res && res.ok) {
     session.browser = true;
     touchIdle();
@@ -199,10 +369,18 @@ async function doAct(args) {
     if (!res || !res.steps) markFailed();
     else touchIdle();
   }
-  return { session_id: session.id, ...res };
+  return { session_id: session.id, owner: o.owner, ...res };
 }
 
 async function doClose(args) {
+  const o = requireOwner(args);
+  if (o.error) return noOwner(o.error);
+  const rec = lockRecord();
+  if (lockAlive(rec) && String(rec.owner) !== o.owner) {
+    return heldBy(holderOf(rec), {
+      guidance: "Only the owner can close a session. Ask the holder to close it, or wait for its idle timer.",
+    });
+  }
   if (actor) {
     await actorCall({ cmd: "close" }, 15_000).catch(() => {});
     reapActor();
@@ -211,29 +389,53 @@ async function doClose(args) {
   session.closed = true;
   session.browser = false;
   session.id = null;
-  return { ok: true, closed: true };
+  releaseLock();
+  return { ok: true, closed: true, owner: o.owner };
 }
 
-// browse — the reconciled one-shot render tool, in the SAME server as the
-// stateful session tools (migration plan step 1). Reuses a live session when
-// one exists (navigating its tab, preserving the session); otherwise boots a
-// fresh Chromium, renders, and CLOSES immediately so it never leaks a browser
-// behind (close-hygiene; idle retire remains only a backstop).
+// status — read-only, needs no owner: whoever is locked out must be able to see
+// who holds the browser without spending a Chromium boot to find out.
+async function doStatus() {
+  const rec = lockRecord();
+  const alive = lockAlive(rec);
+  return {
+    ok: true,
+    session_open: !!(alive && session.browser && actor),
+    held_by: alive ? holderOf(rec) : null,
+    idle_ms_left: alive && session.idleTimer
+      ? Math.max(0, session.idleMs - (Date.now() - session.lastActivity))
+      : null,
+    lock_file: LOCK_FILE,
+  };
+}
+
+// browse — one-shot render. Takes and releases the same lock as a stateful
+// session, so it cannot smuggle a second Chromium past an owner.
 async function doBrowse(args) {
-  if (session.browser && actor) {
-    // live session: reuse its tab by navigating in place
-    const res = await actorCall({ cmd: "open", ...args });
-    if (res && res.ok) touchIdle();
-    else markFailed();
-    return { session_id: session.id, reused: true, ...res };
-  }
-  // no live session: one-shot boot → render → close
-  const opened = await doOpen(args);
-  if (opened && opened.ok) {
-    await doClose({});
+  const o = requireOwner(args);
+  if (o.error) return noOwner(o.error);
+  const got = acquireLock(o.owner);
+  if (!got.ok) return got.error ? { ok: false, refused: "lock_error", error: got.error } : heldBy(got.held);
+  const rest = strip(args);
+  try {
+    if (session.browser && actor) {
+      // live session owned by us: reuse its tab by navigating in place
+      const res = await actorCall({ cmd: "open", ...rest });
+      if (res && res.ok) touchIdle();
+      else markFailed();
+      return { session_id: session.id, owner: o.owner, reused: true, ...res };
+    }
+    const opened = await doOpen({ ...rest, owner: o.owner });
+    if (opened && opened.ok) {
+      await doClose({ owner: o.owner });
+      return { reused: false, released: true, ...opened };
+    }
+    releaseLock();
     return { reused: false, ...opened };
+  } catch (e) {
+    releaseLock();
+    throw e;
   }
-  return { reused: false, ...opened };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,47 +446,67 @@ function send(msg) { try { process.stdout.write(JSON.stringify(msg) + "\n"); } c
 function result(id, r) { send({ jsonrpc: "2.0", id, result: r }); }
 function error(id, code, message) { send({ jsonrpc: "2.0", id, error: { code, message } }); }
 
+const OWNER_PROP = {
+  type: "string",
+  description:
+    "Declared owner of the browser session: your DSH session id, or your name/role in an agent team. " +
+    "Required on every tool that touches the browser. One session may be held at a time; a call whose owner " +
+    "does not match the holder is refused before any browser starts.",
+};
+
 const TOOLS = [
+  {
+    name: "status",
+    description:
+      "Report the browser session gate: whether a session is open, who owns it, and its remaining idle time. " +
+      "Read-only, needs no owner, starts nothing. Call this first when a browser call was refused.",
+    inputSchema: { type: "object", properties: {} },
+  },
   {
     name: "browse",
     description:
       "Open a URL in a real headless Chromium (stealth flags, warm profile) and return the JS-RENDERED page title and visible text, optionally saving a screenshot. " +
       "Use for pages that need JavaScript or that block plain fetchers (Cloudflare etc.). Slower (~5-25s) than web_extract/fetch_raw — prefer those for static pages. " +
-      "If a stateful session is already open it navigates that session's tab; otherwise it boots a fresh Chromium, renders, and closes immediately.",
+      "Requires `owner`; the render takes the single-session gate and releases it on return. " +
+      "If YOUR owner already has a stateful session it navigates that tab instead; if another owner holds it, the call is refused with no browser started.",
     inputSchema: {
       type: "object",
       properties: {
         url: { type: "string", description: "Absolute http(s) URL" },
+        owner: OWNER_PROP,
         wait_ms: { type: "number", description: "Extra render wait after load (default 3500)" },
         max_chars: { type: "number", description: "Max returned text chars (default 20000)" },
         screenshot_path: { type: "string", description: "Optional absolute .png path to save a viewport screenshot" },
       },
-      required: ["url"],
+      required: ["url", "owner"],
     },
   },
   {
     name: "open",
     description:
-      "Open a URL in the shared browser session (proot Chromium, stealth flags, warm profile). " +
-      "The first open (or an act with a url) launches the browser; later open/act calls continue the SAME session. " +
-      "Returns title + visible text (JS-rendered). The session auto-closes after an idle period (default 10 min) — " +
-      "every open/act call resets the idle timer.",
+      "Open a URL in the browser session (proot Chromium, stealth flags, warm profile) UNDER A DECLARED OWNER. " +
+      "Exactly one browser session may exist at a time across all DSH sessions: if another owner holds it this call " +
+      "is refused (refused:\"held_by\", names the holder) and no browser is started. Calls carrying your own owner " +
+      "continue the same session. Returns title + visible text (JS-rendered). The session auto-closes after an idle " +
+      "period (default 10 min, clamped 30 s..30 min) — every open/act call resets it. Close it when done.",
     inputSchema: {
       type: "object",
       properties: {
         url: { type: "string", description: "Absolute http(s) URL to open" },
+        owner: OWNER_PROP,
         wait_ms: { type: "number", description: "Extra render wait after load (default 3500)" },
         max_chars: { type: "number", description: "Max returned text chars (default 20000)" },
         screenshot_path: { type: "string", description: "Optional .png path; result reports where it was saved" },
-        idle_ms: { type: "number", description: "Idle auto-close for this session in ms (default 600000; 0 = never)" },
+        idle_ms: { type: "number", description: "Idle auto-close for this session in ms (default 600000, min 30000, max 1800000)" },
       },
-      required: [],
+      required: ["owner"],
     },
   },
   {
     name: "act",
     description:
       "Run interaction/read steps against the current session page (implicit open if a url is given and no session exists). " +
+      "Requires the `owner` that holds (or will claim) the session; a mismatched owner is refused before anything runs. " +
       "Steps run sequentially; the first failing step aborts the chain and reports per-step results. " +
       "Pointer input is TRUSTED CDP Input.*; set synthetic:true on a step to use DOM dispatchEvent instead " +
       "(for apps whose handlers only fire on JS-triggered events). eval requires an exact-match allowed_evals " +
@@ -293,6 +515,7 @@ const TOOLS = [
       type: "object",
       properties: {
         url: { type: "string", description: "Optional URL for implicit first open" },
+        owner: OWNER_PROP,
         steps: {
           type: "array",
           description: "Steps to execute in order; abort on first failure.",
@@ -326,17 +549,21 @@ const TOOLS = [
         allow_any_eval: { type: "boolean", description: "Allow any eval expression this call (default false)" },
         max_chars: { type: "number", description: "Default truncation cap for read steps" },
       },
-      required: ["steps"],
+      required: ["steps", "owner"],
     },
   },
   {
     name: "close",
     description:
-      "Explicitly close the browser session: stops Chromium and reaps its process tree. Idempotent; " +
-      "safe to call at any time. Strongly suggested once a particular browse is done — releases the " +
-      "Chromium process immediately instead of waiting for the idle timer, keeping memory/process " +
-      "pressure down. Sessions also auto-close after the idle period or after a crash.",
-    inputSchema: { type: "object", properties: {} },
+      "Close the browser session you own: stops Chromium via CDP and releases the single-session gate. " +
+      "Refused if another owner holds the session — there is no preemption, and this tool never signals a process " +
+      "it does not own. Idempotent when nothing is open. Strongly suggested once your work is done: it frees " +
+      "~800 MB immediately instead of waiting for the idle timer.",
+    inputSchema: {
+      type: "object",
+      properties: { owner: OWNER_PROP },
+      required: ["owner"],
+    },
   },
 ];
 
@@ -354,6 +581,7 @@ async function callTool(name, args) {
     case "open": return serialized(() => doOpen(args ?? {}));
     case "act": return serialized(() => doAct(args ?? {}));
     case "close": return serialized(() => doClose(args ?? {}));
+    case "status": return serialized(() => doStatus());
     default: throw new Error(`unknown tool: ${name}`);
   }
 }
@@ -371,7 +599,7 @@ rl.on("line", (line) => {
       result(id, {
         protocolVersion: typeof params?.protocolVersion === "string" ? params.protocolVersion : VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "browser", version: "2.0.0" },
+        serverInfo: { name: "browser", version: "3.0.0" },
       });
       break;
     case "ping": result(id, {}); break;
@@ -392,11 +620,21 @@ rl.on("line", (line) => {
 rl.on("close", () => {
   // stdin EOF (the MCP client / dsh host died): tear down NOW, do not linger.
   log("stdin closed — shutting down");
+  releaseLock();   // synchronous: runs even if the actor teardown below stalls
   teardown()
     .then(() => process.exit(0))
     .catch(() => process.exit(1));
 });
 
-process.on("exit", () => { /* teardown is async; use explicit paths above */ });
-process.on("SIGINT", () => { teardown().then(() => process.exit(0)); });
-process.on("SIGTERM", () => { teardown().then(() => process.exit(0)); });
+process.on("exit", () => {
+  // Last-resort release for a kill that skipped the signal handlers. Safe: this
+  // only removes a record naming THIS pid, and other servers already ignore a
+  // record whose pid is gone (liveness proof), so a SIGKILL cannot leave the
+  // browser locked either way.
+  try {
+    const rec = lockRecord();
+    if (!rec || rec.pid === process.pid) rmSync(LOCK_FILE, { force: true });
+  } catch {}
+});
+process.on("SIGINT", () => { releaseLock(); teardown().then(() => process.exit(0)); });
+process.on("SIGTERM", () => { releaseLock(); teardown().then(() => process.exit(0)); });

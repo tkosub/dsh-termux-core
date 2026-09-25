@@ -32,3 +32,42 @@ Final acceptance includes a real prompt, creating and editing files,
 searching, saving and reopening a conversation, and an existing-conversation
 migration when testing an upgrade. Android background-process behavior and
 optional browser setup are separate checks.
+
+## Browser backend (installed with `--with-web-tools`)
+
+Offline, no browser and no network — asserts the single-session ownership gate:
+`owner` is required on every browser-touching tool, a second owner is refused by
+name before anything starts, only the owner may close, `browse` takes the gate
+and gives it back, and a lock record is honoured only while its holder pid is
+alive with a matching kernel start time:
+
+```bash
+node browser/test-session-gate.mjs browser/session_server.mjs
+```
+
+Real acceptance, needs the proot Chromium — proves the two things the offline
+test cannot: that a refused owner starts **no second Chromium**, and that
+closing leaves no process behind that could hold the gate:
+
+```bash
+node browser/test-session-contention.mjs     # from browser/, with no other session open
+python3 browser/nodriver_cf_test.py          # stealth + Cloudflare probe
+```
+
+Manual check through a live session (the deployed copies, not the repo):
+
+```bash
+# 1. refused, nothing booted
+#    mcp__browser__browse {url:"https://example.com"}            -> refused: "no_owner"
+# 2. claimed
+#    mcp__browser__open  {url:"https://example.com", owner:"a"}  -> ok, session_id
+# 3. second owner refused and named
+#    mcp__browser__open  {url:"https://example.org", owner:"b"}  -> refused: "held_by", held_by "a"
+# 4. released
+#    mcp__browser__close {owner:"a"}                             -> closed, gate free
+node -e 'const f=process.env.HOME+"/.dsh/run/browser-session.lock";try{console.log("HELD",require("fs").readFileSync(f,"utf8").trim())}catch{console.log("gate free")}'
+```
+
+Step 1 and 3 must not start a Chromium: `pgrep -f 'browser-session/user-data'`
+counts one process tree at step 3 and none after step 4.
+
