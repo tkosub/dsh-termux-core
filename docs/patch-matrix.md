@@ -1,8 +1,8 @@
 # Android compatibility
 
 The installer targets DSH **0.1.5-rc.1**. Its published dependency ranges
-currently resolve the file-writing, conversation-storage, and search
-packages to **0.1.5-rc.2**, and `node-addon-system` to **0.1.2**.
+currently resolve the file-writing, conversation-storage, search, and
+attachment packages to **0.1.5-rc.2**, and `node-addon-system` to **0.1.2**.
 The patcher checks these versions and the code it will change before writing.
 An unfamiliar version or code layout is an error, not a successful repair.
 
@@ -12,8 +12,20 @@ An unfamiliar version or code layout is an error, not a successful repair.
 | Images | Install `@img/sharp-wasm32` at the same version as DSH's `sharp` package. |
 | Conversation locking | Load the included Android library. Missing or broken locking support is an error. |
 | Saving conversations and creating files | Use `renameat2(RENAME_NOREPLACE)`, which publishes a file without replacing one created by another process. |
+| Attachments | Stop the durability walk below the filesystem root, at the first ancestor Termux cannot open, and publish without hard links. |
 | File search | Use Termux's `ripgrep`. DSH's bundled search library does not provide an Android executable. |
 | Starting DSH | Pass the Node.js option required by DSH's reload support. |
+
+Android's app sandbox makes `/data` and `/data/data` traverse-only, so a
+process may pass through them but never open them. The other fixes above swap
+one system call for another; attachments cannot, because the failing step is
+an unopenable directory rather than a denied operation. The storage walk
+therefore stops at the highest ancestor that can be opened and verified,
+which is Android's own app directory, `com.termux`. No durability is lost:
+everything above that boundary belongs to the system and does not change.
+Hard links are denied to the app domain, so a newly staged object is moved
+into place and an already-published object is copied, preserving its original
+name.
 
 DSH supplies its own JavaScript dependencies, including `node-pty`, `koffi`,
 and `sharp`; they do not need separate global installations. The installer

@@ -82,6 +82,24 @@ try {
   assert.equal((await sharp(png).metadata()).width, 2);
   console.log('PASS: image creation and reading');
 
+  // Decoding alone says nothing about storage: the attachment walk must stop
+  // at a boundary Termux can open, and publication must not use hard links.
+  const Attachments = require('@deepseek-ai/dsh-attachment-local').default;
+  const attachmentContext = new Context();
+  const attachmentHome = join(dir, 'attachments-home');
+  try {
+    const store = new Attachments(attachmentContext, {dshHome: attachmentHome});
+    const ref = await store.saveImage({data: new Uint8Array(png), mediaType: 'image/png', name: 'check.png'});
+    const stored = await store.readImage(ref);
+    assert.equal(stored.data.byteLength, ref.bytes);
+    const file = await store.saveFile({data: new Uint8Array(png), name: 'check.bin'});
+    assert.equal((await readFile(store.fileHostPath(file))).byteLength, file.bytes);
+    assert.equal((await store.saveImages([
+      {data: new Uint8Array(png), mediaType: 'image/png', name: 'again.png'}
+    ])).length, 1);
+    console.log('PASS: attachments are saved, aliased, and read back');
+  } finally { await attachmentContext.fiber.dispose(); }
+
   require('koffi');
   const pty = require('node-pty');
   await new Promise((resolve, reject) => {

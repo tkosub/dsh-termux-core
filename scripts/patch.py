@@ -58,6 +58,80 @@ def file_patch(source):
     return source
 
 
+def insert_before(source, anchor, block):
+    """Insert a whole definition beside an anchor the block itself may quote."""
+    if block in source:
+        if source.count(block) != 1:
+            raise ValueError('Duplicate inserted block')
+        return source
+    return replace_one(source, anchor, block + anchor, 'insertion anchor')
+
+
+def attachment_patch(source):
+    # Android denies hard links to the app domain, and Termux's app-sandbox
+    # ancestors cannot be opened at all, so both the fsync walk and the
+    # publication path need a substitute rather than a different syscall.
+    header = 'import { renameNoReplace } from "@deepseek-ai/node-addon-system/flock";\n'
+    if header not in source:
+        source = header + source
+    source = replace_one(
+        source,
+        'import { chmod, link, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";',
+        'import { chmod, copyFile, link, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";',
+        'attachment imports')
+    source = insert_before(source, '''/**
+* Establish this process's proof that one DSH_HOME entry and every ancestor''', '''/**
+* Highest ancestor whose entries this process can prove durable. Termux runs
+* inside an app sandbox whose system-owned ancestors are traverse-only: they
+* cannot be opened, so their entries can never be synced and the walk below
+* would fail on them. Stop at the first unopenable ancestor instead. Where the
+* whole chain is openable, this still reaches the filesystem root.
+*/
+async function durableBoundary(path) {
+\tlet level = resolve(path);
+\tfor (;;) {
+\t\tconst parent = dirname(level);
+\t\tif (parent === level) return level;
+\t\ttry {
+\t\t\tconst handle = await open(parent, constants.O_RDONLY);
+\t\t\tawait handle.close();
+\t\t} catch {
+\t\t\treturn level;
+\t\t}
+\t\tlevel = parent;
+\t}
+}
+''')
+    source = replace_one(
+        source,
+        '\t\tawait ensureDurableDirectory(home, parse(home).root);',
+        '\t\tawait ensureDurableDirectory(home, await durableBoundary(home));',
+        'attachment durable home')
+    source = insert_before(source, '''/**
+* Publish another durable hard-link name for an existing immutable object.''', '''/**
+* Give one immutable object a second durable name. Android denies hard links
+* to the app domain, so a staged name is moved instead (publication consumes
+* the staging name either way) and an already-published canonical object is
+* copied, keeping its original name intact.
+*/
+async function publishName(from, to, move) {
+\tif (process.platform !== "android") return link(from, to);
+\tif (move) return renameNoReplace(from, to);
+\treturn copyFile(from, to, constants.COPYFILE_EXCL);
+}
+''')
+    source = replace_one(source, '\t\t\tawait link(source, target);',
+                        '\t\t\tawait publishName(source, target, false);', 'attachment alias')
+    source = replace_one(source, '\t\t\tawait link(staged.path, target);',
+                        '\t\t\tawait publishName(staged.path, target, true);', 'attachment staged')
+    # Publication consumes the staging name either way; ignore a name a
+    # concurrent publisher already removed instead of failing the save.
+    source = replace_one(source, '\t\tawait unlink(staged.path);\n\t\tawait chmod(target, 256);',
+                        '\t\tawait removeTemporary(staged.path);\n\t\tawait chmod(target, 256);',
+                        'attachment staged cleanup')
+    return source
+
+
 def search_patch(source):
     old = '\t\treturn (await import("@vscode/ripgrep")).rgPath;'
     new = '''\t\tif (process.platform === "android") {
@@ -80,7 +154,8 @@ def plan(root):
     versions = [(root, '0.1.5-rc.1'),
                 (packages / 'node-addon-system', '0.1.2')]
     transforms = [('dsh-session-persistence-jsonl', session_patch),
-                  ('dsh-fs-local', file_patch), ('dsh-tool-fs-search', search_patch)]
+                  ('dsh-fs-local', file_patch), ('dsh-tool-fs-search', search_patch),
+                  ('dsh-attachment-local', attachment_patch)]
     versions += [(packages / name, '0.1.5-rc.2') for name, _ in transforms]
     for directory, expected in versions:
         actual = json.loads((directory / 'package.json').read_text())['version']

@@ -20,7 +20,8 @@ class Patches(unittest.TestCase):
     def setUpClass(cls):
         cls.sources = {}
         fixture = os.environ.get('DSH_TEST_FIXTURE')
-        for name in ['dsh-session-persistence-jsonl', 'dsh-fs-local', 'dsh-tool-fs-search']:
+        for name in ['dsh-session-persistence-jsonl', 'dsh-fs-local', 'dsh-tool-fs-search',
+                     'dsh-attachment-local']:
             if fixture:
                 cls.sources[name] = (Path(fixture) / name / 'lib/index.js').read_text(encoding='utf-8')
             else:
@@ -32,7 +33,8 @@ class Patches(unittest.TestCase):
     def test_pristine_and_repeat(self):
         for name, transform in [('dsh-session-persistence-jsonl', patcher.session_patch),
                                 ('dsh-fs-local', patcher.file_patch),
-                                ('dsh-tool-fs-search', patcher.search_patch)]:
+                                ('dsh-tool-fs-search', patcher.search_patch),
+                                ('dsh-attachment-local', patcher.attachment_patch)]:
             with self.subTest(package=name):
                 result = transform(self.sources[name])
                 self.assertNotEqual(result, self.sources[name])
@@ -49,8 +51,30 @@ class Patches(unittest.TestCase):
         self.assertIn('\n\trenameNoReplace,', result)
         self.assertEqual(result, patcher.session_patch(result))
 
+    def test_attachment_patch_replaces_both_android_gaps(self):
+        result = patcher.attachment_patch(self.sources['dsh-attachment-local'])
+        # The fsync walk must stop at an ancestor it can actually open.
+        self.assertNotIn('ensureDurableDirectory(home, parse(home).root)', result)
+        self.assertIn('ensureDurableDirectory(home, await durableBoundary(home))', result)
+        self.assertEqual(result.count('async function durableBoundary(path) {'), 1)
+        # Android denies hard links, so neither publication call may remain.
+        self.assertNotIn('await link(source, target)', result)
+        self.assertNotIn('await link(staged.path, target)', result)
+        self.assertIn('await publishName(source, target, false)', result)
+        self.assertIn('await publishName(staged.path, target, true)', result)
+        self.assertEqual(result.count('async function publishName(from, to, move) {'), 1)
+        self.assertIn('copyFile(from, to, constants.COPYFILE_EXCL)', result)
+        # Publication consumes the staging name; an absent name is not an error.
+        self.assertNotIn('await unlink(staged.path);\n\t\tawait chmod', result)
+
+    def test_attachment_patch_upgrades_its_own_output(self):
+        # A re-run must not insert a second copy of either helper.
+        once = patcher.attachment_patch(self.sources['dsh-attachment-local'])
+        self.assertEqual(patcher.attachment_patch(once), once)
+
     def test_unrecognized_source_fails(self):
-        for transform in [patcher.session_patch, patcher.file_patch, patcher.search_patch]:
+        for transform in [patcher.session_patch, patcher.file_patch, patcher.search_patch,
+                          patcher.attachment_patch]:
             with self.subTest(transform=transform.__name__):
                 with self.assertRaises(ValueError):
                     transform('export {};\n')
@@ -59,6 +83,9 @@ class Patches(unittest.TestCase):
         source = self.sources['dsh-fs-local']
         with self.assertRaises(ValueError):
             patcher.file_patch(source + source)
+        attachment = self.sources['dsh-attachment-local']
+        with self.assertRaises(ValueError):
+            patcher.attachment_patch(attachment + attachment)
 
     def test_validates_all_files_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -73,7 +100,7 @@ class Patches(unittest.TestCase):
             addon = packages / 'node-addon-system'
             addon.mkdir()
             (addon / 'package.json').write_text(json.dumps({'version': '0.1.2'}))
-            self.assertEqual(len(patcher.plan(root)), 3)
+            self.assertEqual(len(patcher.plan(root)), 4)
             (packages / 'dsh-tool-fs-search/lib/index.js').write_text('export {};')
             with self.assertRaises(ValueError):
                 patcher.plan(root)
