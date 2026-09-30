@@ -1,7 +1,7 @@
 # Development checks
 
 Run the source-patch regression tests with Python 3. They download the
-three exact public npm packages and check repeated application, upgrades
+four exact public npm packages and check repeated application, upgrades
 from the previous conversation-storage fix, and rejection of unknown code.
 
 ```bash
@@ -17,7 +17,8 @@ node tests/web-start.mjs "$(npm root -g)/@deepseek-ai/dsh"
 
 The functional checks use temporary files and clean them up. They assert
 cross-process locking, refusal to overwrite existing files, image decoding,
-terminal execution, and the installed search resolver. The web test starts
+saving and reading back an attachment, terminal execution, and the installed
+search resolver. The web test starts
 a separate server on a random loopback port with empty settings, checks its
 authenticated page, and stops only that test process. It does not use API
 keys or send a model request.
@@ -43,6 +44,16 @@ alive with a matching kernel start time:
 
 ```bash
 node browser/test-session-gate.mjs browser/session_server.mjs
+```
+
+Also offline, and needing no Chromium: the mouse steps must hand CDP a
+`MouseButton` enum member, because a plain string raises while the command is
+serialized and `do_act` then closes the session. It drives the real `do_act`
+against a recording stub tab, so a string regression fails here instead of
+killing a live session:
+
+```bash
+python3 browser/test-mouse-steps.py
 ```
 
 Real acceptance, needs the proot Chromium — proves the two things the offline

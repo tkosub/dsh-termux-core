@@ -240,7 +240,8 @@ def _modmask(mods):
 def _mouse_button(name):
     b = {"left": uc.cdp.input_.MouseButton.LEFT,
          "right": uc.cdp.input_.MouseButton.RIGHT,
-         "middle": uc.cdp.input_.MouseButton.MIDDLE}.get((name or "left").lower())
+         "middle": uc.cdp.input_.MouseButton.MIDDLE,
+         "none": uc.cdp.input_.MouseButton.NONE}.get((name or "left").lower())
     if b is None:
         raise StepError(f"unsupported button: {name}")
     return b
@@ -253,14 +254,15 @@ async def _cdp_mouse(type_, x, y, button="left", mods=None, count=1):
 
 
 async def _mouse_distribute(s, x, y, button="left", mods=None, count=1, steps=1):
+    btn = _mouse_button(button)
     await _tab.send(uc.cdp.input_.dispatch_mouse_event(
-        type_="mouseMoved", x=x, y=y, button=button, buttons=0,
+        type_="mouseMoved", x=x, y=y, button=btn, buttons=0,
         modifiers=_modmask(mods), click_count=count, pointer_type="mouse"))
     for i in range(1, steps + 1):
         fx = s[0] + (x - s[0]) * i / steps
         fy = s[1] + (y - s[1]) * i / steps
         await _tab.send(uc.cdp.input_.dispatch_mouse_event(
-            type_="mouseMoved", x=fx, y=fy, button=button, buttons=0,
+            type_="mouseMoved", x=fx, y=fy, button=btn, buttons=0,
             modifiers=_modmask(mods), click_count=count, pointer_type="mouse"))
 
 
@@ -300,7 +302,7 @@ async def _step_press_or_mouse(st, kind):
         return {kind: sel, "x": round(x, 1), "y": round(y, 1)}
     # hover = move only
     await _tab.send(uc.cdp.input_.dispatch_mouse_event(
-        type_="mouseMoved", x=x, y=y, button="none", buttons=0,
+        type_="mouseMoved", x=x, y=y, button=uc.cdp.input_.MouseButton.NONE, buttons=0,
         modifiers=0, click_count=0, pointer_type="mouse"))
     return {"hovered": sel, "x": round(x, 1), "y": round(y, 1)}
 
@@ -318,7 +320,7 @@ async def _step_drag(st):
     for i in range(1, steps + 1):
         fx, fy = x + dx * i / steps, y + dy * i / steps
         await _tab.send(uc.cdp.input_.dispatch_mouse_event(
-            type_="mouseMoved", x=fx, y=fy, button="left",
+            type_="mouseMoved", x=fx, y=fy, button=uc.cdp.input_.MouseButton.LEFT,
             buttons=1, modifiers=0, click_count=1, pointer_type="mouse"))
     await _tab.send(uc.cdp.input_.dispatch_mouse_event(
         type_="mouseReleased", x=x + dx, y=y + dy, button=uc.cdp.input_.MouseButton.LEFT,

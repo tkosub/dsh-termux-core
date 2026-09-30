@@ -131,6 +131,7 @@ reaper from its own directory the same way.
 
 ```bash
 node test-session-gate.mjs          # gate logic, stub actor: no browser, no network
+python3 test-mouse-steps.py         # mouse steps send enum buttons: no browser, no network
 node test-session-contention.mjs    # REAL Chromium: second owner refused, nothing leaks
 python3 nodriver_cf_test.py         # smoke test (exit 0 = STEALTH_OK)
 ```
