@@ -13,6 +13,7 @@ const VERSION = "2024-11-05";
 const SERVER_INFO = { name: "web-tools", version: "1.1.0" };
 
 function send(msg) { process.stdout.write(JSON.stringify(msg) + "\n"); }
+process.stdout.on("error", (e) => { if (e && e.code === "EPIPE") process.exit(0); throw e; });
 function result(id, r) { send({ jsonrpc: "2.0", id, result: r }); }
 function error(id, code, message) { send({ jsonrpc: "2.0", id, error: { code, message } }); }
 

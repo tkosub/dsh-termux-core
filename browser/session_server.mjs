@@ -468,6 +468,7 @@ async function doBrowse(args) {
 // ---------------------------------------------------------------------------
 
 function send(msg) { try { process.stdout.write(JSON.stringify(msg) + "\n"); } catch {} }
+process.stdout.on("error", (e) => { if (e && e.code === "EPIPE") process.exit(0); throw e; });
 function result(id, r) { send({ jsonrpc: "2.0", id, result: r }); }
 function error(id, code, message) { send({ jsonrpc: "2.0", id, error: { code, message } }); }
 

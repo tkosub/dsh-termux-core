@@ -137,7 +137,11 @@ async def _ensure_browser():
         _clear_singleton_locks()
         async def _launch():
             return await stealth_start(headless=True, user_data_dir=SESSION_USER_DATA)
-        _browser = await asyncio.wait_for(_launch(), timeout=BROWSER_START_TIMEOUT)
+        try:
+            _browser = await asyncio.wait_for(_launch(), timeout=BROWSER_START_TIMEOUT)
+        except BaseException:
+            _scrub_leftovers()   # nodriver leaks the process it spawned when start() raises
+            raise
         _tab = None
     return _browser
 
