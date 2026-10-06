@@ -1,8 +1,8 @@
 # DSH for Termux
 
 Install [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
-on an Android phone using Termux. This installer supports **DSH 0.1.5-rc.1**,
-the release candidate, on **ARM64 phones with Android 11 or newer**.
+on an Android phone using Termux. This installer supports **DSH 0.2.1-alpha.1**
+on **ARM64 phones with Android 11 or newer**.
 
 ## Install
 

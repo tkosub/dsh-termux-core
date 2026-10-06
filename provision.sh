@@ -4,7 +4,7 @@ set -euo pipefail
 log() { printf '==> %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DSH_VERSION="${DSH_VERSION:-0.1.5-rc.1}"
+DSH_VERSION="${DSH_VERSION:-0.2.1-alpha.1}"
 FORCE=0
 LOCAL_PATCHES=""
 WEB_TOOLS=0
@@ -20,7 +20,7 @@ while (($#)); do
         *) die "Unknown option: $1" ;;
     esac
 done
-[[ "$DSH_VERSION" == 0.1.5-rc.1 ]] || die "Unsupported DSH version: $DSH_VERSION"
+[[ "$DSH_VERSION" == 0.2.1-alpha.1 ]] || die "Unsupported DSH version: $DSH_VERSION"
 [[ -n "${PREFIX:-}" && -d "$PREFIX" ]] || die 'Run this script inside Termux.'
 command -v pkg >/dev/null || die 'Termux package manager not found.'
 API="$(/system/bin/getprop ro.build.version.sdk)"
@@ -52,7 +52,7 @@ else
     log "DSH $CURRENT_VER is installed; checking and repairing compatibility fixes"
 fi
 export DSH_ROOT
-bash "$REPO_DIR/patches/0.1.5/dsh-apply-015-patches.sh"
+bash "$REPO_DIR/patches/0.2.1-alpha.1/dsh-apply-021a1-patches.sh"
 
 WRAPPER="$DSH_ROOT/dsh-termux-wrapper.sh"
 WRAPPER_TMP="$(mktemp "$DSH_ROOT/.launcher.XXXXXX")"

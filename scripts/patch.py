@@ -133,14 +133,14 @@ async function publishName(from, to, move) {
 
 
 def search_patch(source):
-    old = '\t\treturn (await import("@vscode/ripgrep")).rgPath;'
+    old = '\t\tconst dependency = (await import("@vscode/ripgrep")).rgPath;'
     new = '''\t\tif (process.platform === "android") {
 \t\t\tif (!process.env.PREFIX) throw new Error("Termux PREFIX is missing");
 \t\t\tconst binary = join(process.env.PREFIX, "bin", "rg");
 \t\t\tif (!existsSync(binary)) throw new Error("Install ripgrep with: pkg install ripgrep");
 \t\t\treturn binary;
 \t\t}
-\t\treturn (await import("@vscode/ripgrep")).rgPath;'''
+\t\tconst dependency = (await import("@vscode/ripgrep")).rgPath;'''
     # The old line is intentionally the non-Android branch of the new code.
     if source.count(new) == 1:
         return source
@@ -151,12 +151,12 @@ def search_patch(source):
 
 def plan(root):
     packages = root / 'node_modules' / '@deepseek-ai'
-    versions = [(root, '0.1.5-rc.1'),
+    versions = [(root, '0.2.1-alpha.1'),
                 (packages / 'node-addon-system', '0.1.2')]
     transforms = [('dsh-session-persistence-jsonl', session_patch),
                   ('dsh-fs-local', file_patch), ('dsh-tool-fs-search', search_patch),
                   ('dsh-attachment-local', attachment_patch)]
-    versions += [(packages / name, '0.1.5-rc.2') for name, _ in transforms]
+    versions += [(packages / name, '0.2.1-alpha.1') for name, _ in transforms]
     for directory, expected in versions:
         actual = json.loads((directory / 'package.json').read_text())['version']
         if actual != expected:
