@@ -1,8 +1,8 @@
 # Android compatibility
 
-The installer targets DSH **0.2.1-alpha.1**. Its published dependency ranges
+The installer targets DSH **0.1.5-rc.1**. Its published dependency ranges
 currently resolve the file-writing, conversation-storage, search, and
-attachment packages to **0.2.1-alpha.1**, and `node-addon-system` to **0.1.2**.
+attachment packages to **0.1.5-rc.2**, and `node-addon-system` to **0.1.2**.
 The patcher checks these versions and the code it will change before writing.
 An unfamiliar version or code layout is an error, not a successful repair.
 
@@ -10,11 +10,10 @@ An unfamiliar version or code layout is an error, not a successful repair.
 |---|---|
 | Terminal commands | Build DSH's supplied `node-pty` using the headers installed by Termux. An existing build cache is not needed. |
 | Images | Install `@img/sharp-wasm32` at the same version as DSH's `sharp` package. |
-| FFI runtime | Replace DSH's pinned `koffi` (3.1.1) with 3.3.2, which ships an Android ARM64 prebuild; the pinned version's source does not compile on Termux. |
 | Conversation locking | Load the included Android library. Missing or broken locking support is an error. |
 | Saving conversations and creating files | Use `renameat2(RENAME_NOREPLACE)`, which publishes a file without replacing one created by another process. |
 | Attachments | Stop the durability walk below the filesystem root, at the first ancestor Termux cannot open, and publish without hard links. |
-| File search | Use Termux's `ripgrep`, resolved inside DSH's memoized `resolveRgPath()` factory before the packaged `@vscode/ripgrep` fallback. DSH's bundled search library does not provide an Android executable. |
+| File search | Use Termux's `ripgrep`. DSH's bundled search library does not provide an Android executable. |
 | Starting DSH | Pass the Node.js option required by DSH's reload support. |
 
 Android's app sandbox makes `/data` and `/data/data` traverse-only, so a

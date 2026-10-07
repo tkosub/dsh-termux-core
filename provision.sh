@@ -4,7 +4,7 @@ set -euo pipefail
 log() { printf '==> %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DSH_VERSION="${DSH_VERSION:-0.2.1-alpha.1}"
+DSH_VERSION="${DSH_VERSION:-0.1.5-rc.1}"
 FORCE=0
 LOCAL_PATCHES=""
 WEB_TOOLS=0
@@ -20,7 +20,7 @@ while (($#)); do
         *) die "Unknown option: $1" ;;
     esac
 done
-[[ "$DSH_VERSION" == 0.2.1-alpha.1 ]] || die "Unsupported DSH version: $DSH_VERSION"
+[[ "$DSH_VERSION" == 0.1.5-rc.1 ]] || die "Unsupported DSH version: $DSH_VERSION"
 [[ -n "${PREFIX:-}" && -d "$PREFIX" ]] || die 'Run this script inside Termux.'
 command -v pkg >/dev/null || die 'Termux package manager not found.'
 API="$(/system/bin/getprop ro.build.version.sdk)"
@@ -47,32 +47,12 @@ if [[ -f "$DSH_ROOT/package.json" ]]; then
 fi
 if [[ "$CURRENT_VER" != "$DSH_VERSION" || "$FORCE" == 1 ]]; then
     log "Installing DSH $DSH_VERSION"
-    # npm 11 bypasses the allow-scripts policy for global installs (verified
-    # 2026-10-07: local installs honor it, -g runs every script), so koffi's
-    # broken Termux build would run anyway. Skip ALL scripts at install time
-    # and run the ones dsh needs immediately below.
-    npm install -g --ignore-scripts "@deepseek-ai/dsh@$DSH_VERSION"
+    npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs "@deepseek-ai/dsh@$DSH_VERSION"
 else
     log "DSH $CURRENT_VER is installed; checking and repairing compatibility fixes"
 fi
 export DSH_ROOT
-# Run the install scripts the global install deliberately skipped. Only
-# node-pty carries a real build step; @google/genai's preinstall is a no-op,
-# and protobufjs / dsh-subprocess-local ship no install scripts.
-for spec in node-pty @google/genai protobufjs @deepseek-ai/dsh-subprocess-local; do
-    if [[ -d "$DSH_ROOT/node_modules/$spec" ]]; then
-        log "Building $spec"
-        (cd "$DSH_ROOT" && npm rebuild "$spec") || die "build failed for $spec"
-    fi
-done
-# koffi 3.1.1 (the candidate's exact pin) ships no Android ARM64 prebuild and
-# its source does not compile on Termux. Replace the nested package with 3.3.2,
-# which ships the prebuild and loads without a source build. --ignore-scripts
-# is required: the reconciliation would otherwise run the install script of
-# the nested 3.1.1 under libreoffice-kit and die on the same compile error.
-cd "$DSH_ROOT"
-npm install --no-save --no-package-lock --ignore-scripts koffi@3.3.2
-bash "$REPO_DIR/patches/0.2.1-alpha.1/dsh-apply-021a1-patches.sh"
+bash "$REPO_DIR/patches/0.1.5/dsh-apply-015-patches.sh"
 
 WRAPPER="$DSH_ROOT/dsh-termux-wrapper.sh"
 WRAPPER_TMP="$(mktemp "$DSH_ROOT/.launcher.XXXXXX")"

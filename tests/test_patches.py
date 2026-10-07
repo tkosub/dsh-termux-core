@@ -25,7 +25,7 @@ class Patches(unittest.TestCase):
             if fixture:
                 cls.sources[name] = (Path(fixture) / name / 'lib/index.js').read_text(encoding='utf-8')
             else:
-                url = f'https://registry.npmjs.org/@deepseek-ai/{name}/-/{name}-0.2.1-alpha.1.tgz'
+                url = f'https://registry.npmjs.org/@deepseek-ai/{name}/-/{name}-0.1.5-rc.2.tgz'
                 with urllib.request.urlopen(url, timeout=60) as response:
                     with tarfile.open(fileobj=io.BytesIO(response.read()), mode='r:gz') as archive:
                         cls.sources[name] = archive.extractfile('package/lib/index.js').read().decode()
@@ -90,12 +90,12 @@ class Patches(unittest.TestCase):
     def test_validates_all_files_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'package.json').write_text(json.dumps({'version': '0.2.1-alpha.1'}))
+            (root / 'package.json').write_text(json.dumps({'version': '0.1.5-rc.1'}))
             packages = root / 'node_modules/@deepseek-ai'
             for name, source in self.sources.items():
                 package = packages / name
                 (package / 'lib').mkdir(parents=True)
-                (package / 'package.json').write_text(json.dumps({'version': '0.2.1-alpha.1'}))
+                (package / 'package.json').write_text(json.dumps({'version': '0.1.5-rc.2'}))
                 (package / 'lib/index.js').write_text(source, encoding='utf-8')
             addon = packages / 'node-addon-system'
             addon.mkdir()
