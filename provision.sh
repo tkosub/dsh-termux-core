@@ -72,6 +72,12 @@ done
 # the nested 3.1.1 under libreoffice-kit and die on the same compile error.
 cd "$DSH_ROOT"
 npm install --no-save --no-package-lock --ignore-scripts koffi@3.3.2
+# The candidate's boot chain requires node-addon-require-builtin's native
+# binding, which the vendor publishes for nine platforms but NOT android-arm64.
+# Build it from source on-device with the bionic getter-parser patch. The patch
+# reuses the vendor's MatchArm64AapcsFieldGetter walker, which already accepts
+# the bionic getter shape (bti c; ldr x0, [x0, #imm]; ret).
+bash "$REPO_DIR/scripts/build-require-builtin.sh" "$DSH_ROOT"
 bash "$REPO_DIR/patches/0.2.1-alpha.1/dsh-apply-021a1-patches.sh"
 
 WRAPPER="$DSH_ROOT/dsh-termux-wrapper.sh"
