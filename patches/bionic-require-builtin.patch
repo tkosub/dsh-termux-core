@@ -1,0 +1,97 @@
+diff --git a/packages/native/src/runtime_context/helper.h b/packages/native/src/runtime_context/helper.h
+index 08f34fb..c6300a4 100644
+--- a/packages/native/src/runtime_context/helper.h
++++ b/packages/native/src/runtime_context/helper.h
+@@ -52,6 +52,9 @@ Result<CurrentContextRead> ReadLinuxGlibcArm64CurrentV8Context(
+ Result<CurrentContextRead> ReadLinuxGlibcX64CurrentV8Context(
+     void* isolate,
+     const CurrentContextSymbols& symbols);
++Result<CurrentContextRead> ReadLinuxAndroidArm64CurrentV8Context(
++    void* isolate,
++    const CurrentContextSymbols& symbols);
+ Result<CurrentContextRead> ReadWin32Arm64CurrentV8Context(
+     void* isolate,
+     const CurrentContextSymbols& symbols);
+diff --git a/packages/native/src/runtime_context/linux_android_arm64.cc b/packages/native/src/runtime_context/linux_android_arm64.cc
+new file mode 100644
+index 0000000..5a7f8b7
+--- /dev/null
++++ b/packages/native/src/runtime_context/linux_android_arm64.cc
+@@ -0,0 +1,14 @@
++#include "helper.h"
++
++namespace esplus::node::require_builtin {
++
++// Android (bionic) arm64: the context reader is platform-independent — it calls
++// the V8 symbols (exported on Termux) and reads the context. Only the
++// diagnostic platform tag differs.
++Result<CurrentContextRead> ReadLinuxAndroidArm64CurrentV8Context(
++    void* isolate,
++    const CurrentContextSymbols& symbols) {
++  return ReadDirectCurrentV8Context("linux-android-arm64", isolate, symbols);
++}
++
++}  // namespace esplus::node::require_builtin
+diff --git a/packages/native/src/runtime_context/platform.cc b/packages/native/src/runtime_context/platform.cc
+index c743705..98b7d9b 100644
+--- a/packages/native/src/runtime_context/platform.cc
++++ b/packages/native/src/runtime_context/platform.cc
+@@ -32,6 +32,8 @@ Result<CurrentContextRead> ReadCurrentV8Context(
+   return ReadLinuxGlibcArm64CurrentV8Context(isolate, symbols);
+ #elif defined(__linux__) && defined(__GLIBC__) && defined(__x86_64__)
+   return ReadLinuxGlibcX64CurrentV8Context(isolate, symbols);
++#elif defined(__linux__) && !defined(__GLIBC__) && defined(__aarch64__)
++  return ReadLinuxAndroidArm64CurrentV8Context(isolate, symbols);
+ #elif defined(__linux__)
+   return UnsupportedContextReader("unsupported linux libc current-context reader");
+ #elif defined(_WIN32) && defined(_M_ARM64)
+diff --git a/packages/native/src/runtime_probe/linux_android_arm64.cc b/packages/native/src/runtime_probe/linux_android_arm64.cc
+new file mode 100644
+index 0000000..a106a22
+--- /dev/null
++++ b/packages/native/src/runtime_probe/linux_android_arm64.cc
+@@ -0,0 +1,19 @@
++#include "parser.h"
++
++#include "getter_decoder.h"
++#include "helper.h"
++
++namespace esplus::node::require_builtin {
++
++// Android (bionic) arm64: the getter is a 12-byte leaf —
++//   bti c; ldr x0, [x0, #imm]; ret
++// The AAPCS walker already tolerates BTI landing pads and accepts exactly this
++// shape, so it is reused unchanged. The field offset is decoded from the code,
++// not hardcoded, so it adapts if Termux's Node layout changes.
++Result<GetterPattern> ParseLinuxAndroidArm64BuiltinModuleRequireGetterOffset(
++    void* getter) {
++  return DecodeGetterWithWideWindowRetry(getter, "linux-android-arm64",
++                                         MatchArm64AapcsFieldGetter);
++}
++
++}  // namespace esplus::node::require_builtin
+diff --git a/packages/native/src/runtime_probe/parser.h b/packages/native/src/runtime_probe/parser.h
+index 67ed2af..ad3262e 100644
+--- a/packages/native/src/runtime_probe/parser.h
++++ b/packages/native/src/runtime_probe/parser.h
+@@ -8,6 +8,7 @@ Result<GetterPattern> ParseDarwinArm64BuiltinModuleRequireGetterOffset(void* get
+ Result<GetterPattern> ParseDarwinX64BuiltinModuleRequireGetterOffset(void* getter);
+ Result<GetterPattern> ParseLinuxGlibcArm64BuiltinModuleRequireGetterOffset(void* getter);
+ Result<GetterPattern> ParseLinuxGlibcX64BuiltinModuleRequireGetterOffset(void* getter);
++Result<GetterPattern> ParseLinuxAndroidArm64BuiltinModuleRequireGetterOffset(void* getter);
+ Result<GetterPattern> ParseWin32Arm64BuiltinModuleRequireGetterOffset(void* getter);
+ Result<GetterPattern> ParseWin32X64BuiltinModuleRequireGetterOffset(void* getter);
+ Result<GetterPattern> ParseWin32Ia32BuiltinModuleRequireGetterOffset(void* getter);
+diff --git a/packages/native/src/runtime_probe/platform.cc b/packages/native/src/runtime_probe/platform.cc
+index ee020e6..32d8e24 100644
+--- a/packages/native/src/runtime_probe/platform.cc
++++ b/packages/native/src/runtime_probe/platform.cc
+@@ -12,6 +12,8 @@ Result<GetterPattern> ParseBuiltinModuleRequireGetterOffset(void* getter) {
+   return ParseLinuxGlibcArm64BuiltinModuleRequireGetterOffset(getter);
+ #elif defined(__linux__) && defined(__GLIBC__) && defined(__x86_64__)
+   return ParseLinuxGlibcX64BuiltinModuleRequireGetterOffset(getter);
++#elif defined(__linux__) && !defined(__GLIBC__) && defined(__aarch64__)
++  return ParseLinuxAndroidArm64BuiltinModuleRequireGetterOffset(getter);
+ #elif defined(__linux__)
+   return Result<GetterPattern>::Failure(Status::Failure(
+       ProbeStatus::kUnsupportedNoGetter,
