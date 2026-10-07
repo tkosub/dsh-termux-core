@@ -10,6 +10,7 @@ An unfamiliar version or code layout is an error, not a successful repair.
 |---|---|
 | Terminal commands | Build DSH's supplied `node-pty` using the headers installed by Termux. An existing build cache is not needed. |
 | Images | Install `@img/sharp-wasm32` at the same version as DSH's `sharp` package. |
+| FFI runtime | Replace DSH's pinned `koffi` (3.1.1) with 3.3.2, which ships an Android ARM64 prebuild; the pinned version's source does not compile on Termux. |
 | Conversation locking | Load the included Android library. Missing or broken locking support is an error. |
 | Saving conversations and creating files | Use `renameat2(RENAME_NOREPLACE)`, which publishes a file without replacing one created by another process. |
 | Attachments | Stop the durability walk below the filesystem root, at the first ancestor Termux cannot open, and publish without hard links. |
