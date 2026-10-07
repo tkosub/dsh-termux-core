@@ -67,9 +67,11 @@ for spec in node-pty @google/genai protobufjs @deepseek-ai/dsh-subprocess-local;
 done
 # koffi 3.1.1 (the candidate's exact pin) ships no Android ARM64 prebuild and
 # its source does not compile on Termux. Replace the nested package with 3.3.2,
-# which ships the prebuild and loads without a source build.
+# which ships the prebuild and loads without a source build. --ignore-scripts
+# is required: the reconciliation would otherwise run the install script of
+# the nested 3.1.1 under libreoffice-kit and die on the same compile error.
 cd "$DSH_ROOT"
-npm install --no-save --no-package-lock koffi@3.3.2
+npm install --no-save --no-package-lock --ignore-scripts koffi@3.3.2
 bash "$REPO_DIR/patches/0.2.1-alpha.1/dsh-apply-021a1-patches.sh"
 
 WRAPPER="$DSH_ROOT/dsh-termux-wrapper.sh"
