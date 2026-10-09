@@ -9,6 +9,7 @@ An unfamiliar version or code layout is an error, not a successful repair.
 | Feature | Android fix |
 |---|---|
 | Terminal commands | Build DSH's supplied `node-pty` using the headers installed by Termux. An existing build cache is not needed. |
+| Terminal process inspection | Accept Node's `android` platform wherever the code tests for `linux`. Node reports `android` on Android, so the inspector dispatch never reached the Linux branch and every PTY open threw `terminal inspection is unsupported on platform android` at spawn time. |
 | Images | Install `@img/sharp-wasm32` at the same version as DSH's `sharp` package. |
 | FFI runtime | Replace DSH's pinned `koffi` (3.1.1) with 3.3.2, which ships an Android ARM64 prebuild; the pinned version's source does not compile on Termux. |
 | Conversation locking | Load the included Android library. Missing or broken locking support is an error. |
@@ -27,6 +28,37 @@ everything above that boundary belongs to the system and does not change.
 Hard links are denied to the app domain, so a newly staged object is moved
 into place and an already-published object is copied, preserving its original
 name.
+
+Node reports `process.platform` as `android`, not `linux`, on Android. The
+process inspector is the code that treats the two as different, and the
+consequence is a hard failure rather than a degraded path: `spawnTerminal()`
+builds its inspector before touching `node-pty`, so the in-app terminal cannot
+open at all. Android is Linux for this purpose on this platform — `/proc` is
+readable for the processes DSH spawns (verified: `stat`, per-thread `stat`,
+`syscall`, `mem`, and negative-pid group signalling all succeed for own
+children), and the inspector's own syscall table already carries `arm64`.
+Accepting `android` alongside `linux` therefore needs no substitute mechanism.
+
+Two dispatch sites are patched, both in `dsh-subprocess-local`. The inspector
+factory selects `LinuxProcessInspector`, which is the blocking failure.
+Containment selection also tests for `linux`; without it Android reported the
+false reason "platform android has no native managed range". On Termux the
+Linux probes fail for the honest reason — there is no `systemctl`, so no user
+scope and no private bootstrap — so the outcome stays the weaker `fallback`
+containment either way, with an accurate explanation. That package's remaining
+`linux` test governs process-tree classification, not the ability to open a
+terminal, and was deliberately left alone: the patch stays at the two dispatch
+sites that decide whether the terminal works at all.
+
+Verified against a real interactive child on this platform: the inspector
+resolves own-child rows (`stat`, per-thread `stat`, `syscall`, `mem`) and
+negative-pid group signalling, and `snapshot()` reports complete when `/proc`
+is fully enumerable. Where a shell has no controlling terminal — a piped
+stdio rather than a pty — `foregroundPgid()` and `isStdinWaiting()` correctly
+report nothing instead of guessing.
+
+Because the patched code is loaded once at boot, an applied patch takes effect
+on the next DSH start, not in the running process.
 
 DSH supplies its own JavaScript dependencies, including `node-pty`, `koffi`,
 and `sharp`; they do not need separate global installations. The installer

@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tarfile
 import tempfile
 import unittest
@@ -14,21 +15,32 @@ spec = importlib.util.spec_from_file_location('patcher', ROOT / 'scripts/patch.p
 patcher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(patcher)
 
+BUNDLED_CHUNK = re.compile(r'package/lib/runner-launch-.*\.js')
+
 
 class Patches(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.sources = {}
+        cls.bundled = {}
         fixture = os.environ.get('DSH_TEST_FIXTURE')
         for name in ['dsh-session-persistence-jsonl', 'dsh-fs-local', 'dsh-tool-fs-search',
-                     'dsh-attachment-local']:
+                     'dsh-attachment-local', 'dsh-subprocess-local']:
             if fixture:
-                cls.sources[name] = (Path(fixture) / name / 'lib/index.js').read_text(encoding='utf-8')
+                base = Path(fixture) / name
+                cls.sources[name] = (base / 'lib/index.js').read_text(encoding='utf-8')
+                chunk = sorted(base.glob('lib/runner-launch-*.js'))
+                if len(chunk) == 1:
+                    cls.bundled[name] = chunk[0].read_text(encoding='utf-8')
             else:
                 url = f'https://registry.npmjs.org/@deepseek-ai/{name}/-/{name}-0.2.1-alpha.1.tgz'
                 with urllib.request.urlopen(url, timeout=60) as response:
                     with tarfile.open(fileobj=io.BytesIO(response.read()), mode='r:gz') as archive:
                         cls.sources[name] = archive.extractfile('package/lib/index.js').read().decode()
+                        members = [member for member in archive.getnames()
+                                   if BUNDLED_CHUNK.fullmatch(member)]
+                        if len(members) == 1:
+                            cls.bundled[name] = archive.extractfile(members[0]).read().decode()
 
     def test_pristine_and_repeat(self):
         for name, transform in [('dsh-session-persistence-jsonl', patcher.session_patch),
@@ -39,6 +51,18 @@ class Patches(unittest.TestCase):
                 result = transform(self.sources[name])
                 self.assertNotEqual(result, self.sources[name])
                 self.assertEqual(result, transform(result))
+
+    def test_subprocess_platform_patch(self):
+        inspector = patcher.subprocess_inspector_patch(self.bundled['dsh-subprocess-local'])
+        # Android must reach the Linux inspector instead of throwing at spawn.
+        self.assertIn('if (platform === "linux" || platform === "android") return new LinuxProcessInspector', inspector)
+        self.assertEqual(inspector, patcher.subprocess_inspector_patch(inspector))
+        # Every other platform dispatch is untouched.
+        self.assertIn('if (platform === "darwin") return new MacProcessInspector', inspector)
+        self.assertIn('if (platform === "win32") return createWindowsProcessInspector()', inspector)
+        containment = patcher.subprocess_containment_patch(self.sources['dsh-subprocess-local'])
+        self.assertIn('if (platform === "linux" || platform === "android") {', containment)
+        self.assertEqual(containment, patcher.subprocess_containment_patch(containment))
 
     def test_existing_session_patch_is_upgraded(self):
         source = self.sources['dsh-session-persistence-jsonl']
@@ -74,7 +98,8 @@ class Patches(unittest.TestCase):
 
     def test_unrecognized_source_fails(self):
         for transform in [patcher.session_patch, patcher.file_patch, patcher.search_patch,
-                          patcher.attachment_patch]:
+                          patcher.attachment_patch, patcher.subprocess_inspector_patch,
+                          patcher.subprocess_containment_patch]:
             with self.subTest(transform=transform.__name__):
                 with self.assertRaises(ValueError):
                     transform('export {};\n')
@@ -97,14 +122,21 @@ class Patches(unittest.TestCase):
                 (package / 'lib').mkdir(parents=True)
                 (package / 'package.json').write_text(json.dumps({'version': '0.2.1-alpha.1'}))
                 (package / 'lib/index.js').write_text(source, encoding='utf-8')
+                if name in self.bundled:
+                    (package / 'lib/runner-launch-B2zsQ1Dz.js').write_text(self.bundled[name], encoding='utf-8')
             addon = packages / 'node-addon-system'
             addon.mkdir()
             (addon / 'package.json').write_text(json.dumps({'version': '0.1.2'}))
-            self.assertEqual(len(patcher.plan(root)), 4)
+            self.assertEqual(len(patcher.plan(root)), 6)
             (packages / 'dsh-tool-fs-search/lib/index.js').write_text('export {};')
             with self.assertRaises(ValueError):
                 patcher.plan(root)
             self.assertEqual((packages / 'dsh-fs-local/lib/index.js').read_text(encoding='utf-8'), self.sources['dsh-fs-local'])
+            # A bundled chunk the pattern cannot resolve is also a hard error.
+            (packages / 'dsh-tool-fs-search/lib/index.js').write_text(self.sources['dsh-tool-fs-search'], encoding='utf-8')
+            (packages / 'dsh-subprocess-local/lib/runner-launch-B2zsQ1Dz.js').unlink()
+            with self.assertRaisesRegex(ValueError, 'matched 0 files'):
+                patcher.plan(root)
             (addon / 'package.json').write_text(json.dumps({'version': '99.0.0'}))
             with self.assertRaisesRegex(ValueError, 'has not been checked'):
                 patcher.plan(root)

@@ -149,21 +149,58 @@ def search_patch(source):
     return source.replace(old, new, 1)
 
 
+def subprocess_inspector_patch(source):
+    # Node reports 'android' on Android, so the inspector dispatch never
+    # reaches the Linux branch and every PTY open throws at spawn time.
+    # Android is Linux for this purpose: /proc is readable for the processes
+    # DSH spawns, and the arm64 syscall table is already present.
+    old = '\tif (platform === "linux") return new LinuxProcessInspector(arch, internals);'
+    new = '\tif (platform === "linux" || platform === "android") return new LinuxProcessInspector(arch, internals);'
+    if source.count(new) == 1:
+        return source
+    if source.count(old) != 1:
+        raise ValueError('subprocess inspector: unrecognized source; no files were changed')
+    return source.replace(old, new, 1)
+
+
+def subprocess_containment_patch(source):
+    # Classify Android as Linux so containment selection reaches the Linux
+    # probes. Termux fails them for the honest reason -- no user-systemd scope
+    # and no private bootstrap -- instead of the false "platform android has
+    # no native managed range", and keeps the same fallback containment.
+    old = '\t\tif (platform === "linux") {'
+    new = '\t\tif (platform === "linux" || platform === "android") {'
+    if source.count(new) == 1:
+        return source
+    if source.count(old) != 1:
+        raise ValueError('subprocess containment: unrecognized source; no files were changed')
+    return source.replace(old, new, 1)
+
+
 def plan(root):
     packages = root / 'node_modules' / '@deepseek-ai'
     versions = [(root, '0.2.1-alpha.1'),
                 (packages / 'node-addon-system', '0.1.2')]
-    transforms = [('dsh-session-persistence-jsonl', session_patch),
-                  ('dsh-fs-local', file_patch), ('dsh-tool-fs-search', search_patch),
-                  ('dsh-attachment-local', attachment_patch)]
-    versions += [(packages / name, '0.2.1-alpha.1') for name, _ in transforms]
+    # (package, file pattern under the package, transform). The subprocess
+    # inspector lives in a bundled chunk whose name carries a build hash, so
+    # it is matched by pattern rather than by name.
+    transforms = [('dsh-session-persistence-jsonl', 'lib/index.js', session_patch),
+                  ('dsh-fs-local', 'lib/index.js', file_patch),
+                  ('dsh-tool-fs-search', 'lib/index.js', search_patch),
+                  ('dsh-attachment-local', 'lib/index.js', attachment_patch),
+                  ('dsh-subprocess-local', 'lib/runner-launch-*.js', subprocess_inspector_patch),
+                  ('dsh-subprocess-local', 'lib/index.js', subprocess_containment_patch)]
+    versions += [(packages / name, '0.2.1-alpha.1') for name in dict.fromkeys(name for name, _, _ in transforms)]
     for directory, expected in versions:
         actual = json.loads((directory / 'package.json').read_text())['version']
         if actual != expected:
             raise ValueError(f'{directory.name}: expected {expected}, found {actual}; this version has not been checked')
     changes = []
-    for name, transform in transforms:
-        path = packages / name / 'lib' / 'index.js'
+    for name, pattern, transform in transforms:
+        matched = sorted((packages / name).glob(pattern))
+        if len(matched) != 1:
+            raise ValueError(f'{name}: {pattern} matched {len(matched)} files; this version has not been checked')
+        path = matched[0]
         original = path.read_text(encoding='utf-8')
         changes.append((path, original, transform(original)))
     return changes
